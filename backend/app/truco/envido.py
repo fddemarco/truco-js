@@ -45,6 +45,18 @@ def tanto(cards: Sequence[Card]) -> int:
     return best
 
 
+def provable_tantos(cards: Sequence[Card]) -> set[int]:
+    """Numbers these cards can show exactly (11.7): any single card, or 20 + a same-suit pair."""
+    numbers = {c.envido_value for c in cards}
+    numbers |= {
+        20 + a.envido_value + b.envido_value for a, b in combinations(cards, 2) if a.suit == b.suit
+    }
+    return numbers
+
+
+VALID_DECLARATIONS = tuple(range(0, 8)) + tuple(range(20, 34))
+
+
 def can_call(calls: Sequence[EnvidoCall], call: EnvidoCall) -> bool:
     return (*calls, call) in VALID_SEQUENCES
 

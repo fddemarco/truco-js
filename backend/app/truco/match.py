@@ -1,32 +1,23 @@
-"""A partido a 30: deals, mano types, scoreboard, dealing errors and sanctions.
+"""A partido a 30: deals, mano types, scoreboard, reclamos and sanctions.
 
-Covers 1.3–1.5, 5.5–5.7, 6.4, 15.1, 16.4, 19.2 and the result types of 1.14.
-
-TODO: fuerza mayor and substitutes (4.4), suspensions (17.3), interference in pica-pica
-(15.6), presentación delays (4.1) and the 15-minute correction window (16.8).
+Covers 1.3–1.5, 5.5–5.7, 11.7, 15.1, 15.6, 15.9, 16.4, 19.2 and the result types of 1.14.
+The deal is automated, so the reglamento's physical incidents (dealing errors, cutting,
+dropped, lost or extra cards) can't happen and are not modelled.
 """
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 
 from app.truco.cards import Card, shuffled_deck
-from app.truco.hand import Action, Contest, PicaPicaHand
+from app.truco.config import GameConfig
+from app.truco.hand import Action, ActionKind, Contest, PicaPicaHand
 from app.truco.score import TARGET, capped
-from app.truco.table import (
-    SEATS,
-    choose_first_dealer,
-    mano_of,
-    order_from,
-    other,
-    right_of,
-    team_of,
-)
+from app.truco.signals import SenaEvent
+from app.truco.table import choose_first_dealer, mano_of, order_from, other, right_of
 
 PICA_PICA_FROM = 5
 PICA_PICA_UNTIL = 25
-DEALING_PENALTY = 2
-DEALING_ERRORS_PER_CYCLE = 2
 WARNINGS_TO_LOSE = 2
 
 
@@ -42,12 +33,6 @@ class ResultKind(StrEnum):
     ABANDONO = "abandono"
     SANCION = "sancion"
     DOBLE_DESCALIFICACION = "doble_descalificacion"
-
-
-class DealingErrorOutcome(StrEnum):
-    CONTINUE = "continuar"  # 1.º error, the affected captain keeps the deal
-    REDEAL = "repetir"  # 1.º error, the same dealer deals again
-    PENALTY = "penalidad"  # 2.º error: +2 to the rival, mano annulled, next dealer
 
 
 class MatchError(RuntimeError):
@@ -70,11 +55,16 @@ class HandRecord:
     kind: HandKind
     dealer: int
     points: tuple[int, int]
-    annulled: bool = False
 
 
 class Match:
-    def __init__(self, first_dealer: int | None = None, rng: random.Random | None = None) -> None:
+    def __init__(
+        self,
+        first_dealer: int | None = None,
+        rng: random.Random | None = None,
+        config: GameConfig | None = None,
+    ) -> None:
+        self.config = config or GameConfig()
         self.rng = rng or random.Random()
         self.dealer = choose_first_dealer(self.rng) if first_dealer is None else first_dealer
         self.score = [0, 0]
@@ -82,10 +72,13 @@ class Match:
         self.hand: Contest | PicaPicaHand | None = None
         self.hand_kind: HandKind | None = None
         self.history: list[HandRecord] = []
-        self.dealing_errors = dict.fromkeys(range(SEATS), 0)  # per dealer, reset each partido
         self.warnings = [0, 0]  # advertencias disciplinarias per team
         self.result: MatchResult | None = None
         self.homologated = False
+        # Interactive reclamos about the last mano stay open until the next deal (11.7, 15.9).
+        self._claimable: Contest | None = None
+        self._last_hand: Contest | PicaPicaHand | None = None
+        self._before_last: tuple[list[int], bool] = ([0, 0], False)
 
     @property
     def finished(self) -> bool:
@@ -99,40 +92,54 @@ class Match:
         return HandKind.PICA_PICA if last == HandKind.REDONDA else HandKind.REDONDA
 
     def deal(self, cards: dict[int, list[Card]] | None = None) -> Contest | PicaPicaHand:
-        """Start the next mano. `cards` overrides the random deal (tests, replays)."""
+        """Start the next mano; this is the cut that closes the last reclamos.
+
+        `cards` overrides the random deal (tests, replays).
+        """
         if self.finished:
             raise MatchError("the partido is over")
         if self.hand is not None:
             raise MatchError("a mano is in progress")
+        if self._claimable is not None:
+            self._claimable.close_claims()
+            self._claimable = None
         return self._deal(cards)
 
-    def play(self, action: Action) -> None:
+    def actions_for(self, seat: int) -> list[Action]:
+        if self.hand is not None:
+            return self.hand.actions_for(seat)
+        if self._claimable is not None and not self.homologated:
+            return self._claimable.actions_for(seat)
+        return []
+
+    def play(self, action: Action, seat: int | None = None) -> None:
         if self.hand is None:
+            if action.kind == ActionKind.RECLAMAR and seat is not None:
+                if action not in self.actions_for(seat):
+                    raise MatchError("no reclamo open for this seat")
+                assert self._claimable is not None
+                self._claimable.apply(action, seat)
+                self._rescore_last_hand()
+                return
             raise MatchError("no mano in progress")
-        self.hand.apply(action)
+        self.hand.apply(action, seat)
         if self.hand.finished:
-            self._close_hand(tuple(self.hand.points))
+            self._close_hand(self._hand_points())
 
-    def dealing_error(self, *, repeat: bool = True) -> DealingErrorOutcome:
-        """Register an error by the current dealer (6.1–6.4).
-
-        On a 1.º error the affected captain chooses to continue or `repeat`. The 2.º error in
-        the dealer's cycle gives the rival 2 points, annuls the mano and passes the deck.
-        """
+    def sena(self, event: SenaEvent) -> None:
+        """Interactive señas. A seña from outside the current duelo is interference (15.6)."""
+        if not self.config.interactive:
+            raise MatchError("timed señas are only played in interactive mode")
         if self.hand is None:
             raise MatchError("no mano in progress")
-        self.dealing_errors[self.dealer] += 1
-        if self.dealing_errors[self.dealer] >= DEALING_ERRORS_PER_CYCLE:
-            self.dealing_errors[self.dealer] = 0
-            points = [0, 0]
-            points[other(team_of(self.dealer))] = DEALING_PENALTY
-            self._close_hand((points[0], points[1]), annulled=True)
-            return DealingErrorOutcome.PENALTY
-        if repeat:
-            self.hand = None
-            self._deal(None)
-            return DealingErrorOutcome.REDEAL
-        return DealingErrorOutcome.CONTINUE
+        if isinstance(self.hand, Contest):
+            self.hand.record_sena(event)
+            return
+        offender = self.hand.record_sena(event)
+        if self.hand.finished:
+            self._close_hand(self._hand_points())
+        if offender is not None and (self.result is None or not self.result.administrative):
+            self.warn(offender)
 
     def warn(self, team: int) -> None:
         """Advertencia disciplinaria; the 2.ª in the partido loses it (19.2)."""
@@ -178,20 +185,46 @@ class Match:
         self.hand_kind = self.next_hand_kind()
         scores = (self.score[0], self.score[1])
         if self.hand_kind == HandKind.PICA_PICA:
-            self.hand = PicaPicaHand(cards, mano, scores)
+            self.hand = PicaPicaHand(cards, mano, scores, self.config, self.rng)
         else:
-            self.hand = Contest(order, cards, pica_pica=False, scores=scores)
+            self.hand = Contest(
+                order, cards, pica_pica=False, scores=scores, config=self.config, rng=self.rng
+            )
         return self.hand
 
-    def _close_hand(self, points: tuple[int, int], *, annulled: bool = False) -> None:
-        assert self.hand_kind is not None
+    def _hand_points(self) -> tuple[int, int]:
+        assert self.hand is not None
+        return (self.hand.points[0], self.hand.points[1])
+
+    def _close_hand(self, points: tuple[int, int]) -> None:
+        assert self.hand_kind is not None and self.hand is not None
+        self._before_last = (list(self.score), self.pica_pica_started)
+        self._last_hand = self.hand
+        if self.config.interactive:
+            hand = self.hand
+            self._claimable = hand if isinstance(hand, Contest) else hand.duels[-1]
         for t in (0, 1):
             self.score[t] = capped(self.score[t], points[t])
-        self.history.append(HandRecord(self.hand_kind, self.dealer, points, annulled))
+        self.history.append(HandRecord(self.hand_kind, self.dealer, points))
         self.hand = None
         self.dealer = right_of(self.dealer)  # 5.7
         if max(self.score) >= PICA_PICA_FROM:
             self.pica_pica_started = True
+        for t in (0, 1):
+            if self.score[t] >= TARGET:
+                self._end(ResultKind.DEPORTIVO, t)
+
+    def _rescore_last_hand(self) -> None:
+        """A reclamo moved the points of the last mano: score it again (11.7, 11.10)."""
+        assert self._last_hand is not None
+        before, pica_pica_started = self._before_last
+        points = (self._last_hand.points[0], self._last_hand.points[1])
+        self.score = [capped(before[t], points[t]) for t in (0, 1)]
+        self.history[-1] = replace(self.history[-1], points=points)
+        self.pica_pica_started = pica_pica_started or max(self.score) >= PICA_PICA_FROM
+        if self.result is not None and self.result.administrative:
+            return
+        self.result = None
         for t in (0, 1):
             if self.score[t] >= TARGET:
                 self._end(ResultKind.DEPORTIVO, t)

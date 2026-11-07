@@ -4,7 +4,6 @@ import pytest
 
 from app.truco.hand import Action, ActionKind, Contest
 from app.truco.match import (
-    DealingErrorOutcome,
     HandKind,
     Match,
     MatchError,
@@ -47,19 +46,6 @@ def test_pica_pica_starts_the_mano_after_reaching_5_and_alternates():
     assert m.next_hand_kind() == HandKind.PICA_PICA
 
 
-def test_annulled_mano_still_counts_for_the_alternation():
-    m = Match(first_dealer=0, rng=random.Random(1))
-    m.score = [4, 0]
-    m.deal()
-    concede(m)  # 5-0: pica-pica comes next
-    m.deal()
-    assert m.hand_kind == HandKind.PICA_PICA
-    m.dealing_error(repeat=False)
-    assert m.dealing_error() == DealingErrorOutcome.PENALTY
-    assert m.history[-1].kind == HandKind.PICA_PICA and m.history[-1].annulled
-    assert m.next_hand_kind() == HandKind.REDONDA
-
-
 def test_redonda_reaching_25_ends_pica_pica():
     m = Match(first_dealer=5, rng=random.Random(1))  # seat 0 (team 0) is mano
     m.score = [3, 24]
@@ -95,22 +81,6 @@ def test_score_is_capped_at_30_and_ends_the_partido():
     assert m.result.kind == ResultKind.DEPORTIVO and m.result.winner == 1
     with pytest.raises(MatchError):
         m.deal()
-
-
-def test_dealing_error_cycle():
-    m = Match(first_dealer=2, rng=random.Random(1))
-    m.deal()
-    assert m.dealing_error(repeat=False) == DealingErrorOutcome.CONTINUE
-    assert m.hand is not None
-    assert m.dealing_error() == DealingErrorOutcome.PENALTY
-    assert m.score == [0, 2]  # dealer 2 is team 0
-    assert m.history[-1].annulled
-    assert m.dealer == 3 and m.hand is None
-    assert m.dealing_errors[2] == 0
-
-    m.deal()
-    assert m.dealing_error() == DealingErrorOutcome.REDEAL  # dealer 3's own cycle
-    assert m.dealer == 3 and m.hand is not None
 
 
 def test_second_disciplinary_warning_loses_the_partido():
