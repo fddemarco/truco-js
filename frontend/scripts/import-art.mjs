@@ -1,7 +1,7 @@
 // Imports the raster art made from docs/art-prompts.md into static/ as WebP.
 // Run with `pnpm import-art` (or `pnpm import-art --partial`); the output is committed.
 //
-// assets/avatars/approved/<character>/<variant>.png  ->  static/avatars/<character>/<variant>.webp
+// assets/avatars/<character>/<variant>.png  ->  static/avatars/<character>/<variant>.webp
 //   base + one per seña, already cut out and aligned to one 512² head frame by
 //   tools/art/avatars.py, plus portrait.png: the full character for avatar selection.
 // assets/cards/<name>.png  ->  static/cards/<name>.webp  (400×600)
@@ -29,12 +29,12 @@ const CARD = { width: 400, height: 600, fit: "fill" };
 const expected = [
   ...CHARACTERS.flatMap((c) => [
     ...VARIANTS.map((v) => ({
-      src: `avatars/approved/${c}/${v}`,
+      src: `avatars/${c}/${v}`,
       name: `avatars/${c}/${v}`,
       size: SQUARE,
     })),
     {
-      src: `avatars/approved/${c}/portrait`,
+      src: `avatars/${c}/portrait`,
       name: `avatars/${c}/portrait`,
       size: SQUARE,
       trim: true,
@@ -68,8 +68,8 @@ function listFiles(dir) {
 const found = expected.map((e) => ({ ...e, path: findSource(e.src) }));
 const missing = found.filter((e) => !e.path).map((e) => e.src);
 const known = new Set(expected.map((e) => e.src));
-// Only the folders the import reads: raw sheets and failed cells live elsewhere in assets/.
-const extra = [join(SRC, "avatars", "approved"), join(SRC, "cards")]
+// Only the folders the import reads: work files live in assets/work/.
+const extra = [join(SRC, "avatars"), join(SRC, "cards")]
   .flatMap(listFiles)
   .map((f) => relative(SRC, f).replaceAll("\\", "/"))
   .filter((f) => !known.has(f.slice(0, -extname(f).length)));

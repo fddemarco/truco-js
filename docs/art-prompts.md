@@ -8,16 +8,21 @@ The table art is raster images made with an image model from the prompts below. 
 
 1. **Start a character** from its base image and a first gallery:
    `uv run tools/art/avatars.py init <id> --base <base image> --sheet <gallery>`.
-   The frame is that gallery's head-and-shoulders cell (`--ref-cell`, 6 by default). This writes `assets/avatars/approved/<id>/base.png`, the neutral face in that frame and the table's resting image, and `portrait.png`, the full character for avatar selection.
+   The frame is that gallery's head-and-shoulders cell (`--ref-cell`, 6 by default). This writes `assets/avatars/<id>/base.png`, the neutral face in that frame and the table's resting image, and `portrait.png`, the full character for avatar selection.
 2. **Process a gallery:** `uv run tools/art/avatars.py sheet <id> <gallery> [--grid 3x3]`.
    - It removes the background from every cell and aligns the cell to the character's `base.png` by the hair/hat silhouette, so the head never moves when a seña plays.
    - A hat cut off by the cell edge is rebuilt from the neutral face.
    - White, checkerboard and black backgrounds are removed, and a uniform grey frame around a cell is stripped. A black background is turned white first, keeping a line-width band next to the drawing as its outline. Black shapes touching it (headphones) can't be told apart from it, so for those cells the body below the chin is rebuilt from the neutral face. The tool warns about any cell it can't cut out. White or checkerboard backgrounds still give the cleanest results.
-   - Output goes to `assets/avatars/candidates/<id>/`: one PNG per cell, plus `<gallery>-review.png` showing the neutral and every cell at 200 px and at the table's 80 px.
-3. **Mirror** instead of regenerating when a seña has a mirror-image partner. Image models rarely put a wink or a mouth corner on the requested side, so 03 is built from the approved 04, and 02 from a wink on the wrong eye:
-   `uv run tools/art/avatars.py mirror <id> <source> <seña> --box X0,Y0,X1,Y1`.
-   Inside the box, the source is replaced by its reflection across the face's own symmetry axis; hair, hats and props outside it stay put. `tools/art/mirror-recipes.sh` records the commands and boxes used for every mirrored seña, with tips for picking boxes.
-4. **Review** each candidate against the bar below. Then move it to `approved/<id>/<seña>.png`, `alternates/<id>/` (passes, but not the pick) or `failed/<id>/` (name the reason in the file name). Keep the status in `assets/avatars/REVIEW.md`.
+   - Output goes to `assets/work/<id>/`: one PNG per cell, plus `<gallery>-review.png` showing the neutral and every cell at 200 px and at the table's 80 px.
+3. **Edit** instead of regenerating when the model keeps failing. Image models rarely put a wink or a mouth corner on the requested side, and can't keep a hat or a moustache while changing what's under it. `tools/art/avatars.py` has four editing commands; all of them write a candidate and a review sheet:
+   - `mirror`: replace a box with its reflection across the face's own symmetry axis (03 from 04, 02 from a wink on the wrong eye).
+   - `lift`: move the brows up (01), when they're clear of hats and hair.
+   - `patch`: copy a box from another image, usually the neutral face, to fix one part of a good cell.
+   - `overlay`: erase strokes, then draw features from an SVG with Inkscape (brows over a hat, a mouth under a moustache).
+   - `realign`: re-frame a variant by its line art when a rebuilt hat top fooled the alignment.
+
+   `uv run tools/art/avatars.py --help` explains each one. Tips for boxes: for a mirror, use a mouth-only box when the eyes are symmetric. When one brow is raised, take brows, eyes and mouth together, or the flipped mouth corner lands on the other eye. Use `--exact` with one box per eye when hair crosses an eye.
+4. **Review** each candidate against the bar below, then copy the one that passes to `assets/avatars/<id>/<seña>.png`. That folder holds only final images: base, portrait and the eight señas per character. Work files stay in `assets/work/`, which you can delete at any time.
 
 **Cards.** Save them as `assets/cards/<name>.png` (names in §2.5); they need no processing.
 
@@ -77,7 +82,7 @@ and then add the line from the table. Keep señas **subtle but clearly readable 
 
 **Right and left are the character's own (Anexo C.1).** The character faces the viewer, so **the character's right side is on the viewer's LEFT**. For the wink (02) and the mouth corners (03, 04), the prompts name **only the side of the image**. When the first batch said "the character's right" or "the viewer's left", the model put every one of them on the image's right. Check those three by eye: a wink on the image's right is seña 02 done wrong.
 
-| File (`assets/avatars/approved/<id>/…`) | Seña (Anexo C.2)     | Edit line                                                                                                                                                                                                          |
+| File (`assets/avatars/<id>/…`) | Seña (Anexo C.2)     | Edit line                                                                                                                                                                                                          |
 | --------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `base.png`                              | none                 | (the base image itself)                                                                                                                                                                                            |
 | `sena_01.png`                           | 01: as de espadas    | Raise **both eyebrows** clearly higher than in the base, eyes a little wider. **The mouth stays exactly as in the base, closed** (an open mouth is seña 07). The change must be obvious next to the base at 80 px. |
