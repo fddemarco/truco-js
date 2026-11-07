@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from "$app/state";
+  import { LOGO } from "$lib/cards";
   import { i18n, LOCALES, setLocale, t, type MessageKey } from "$lib/i18n.svelte";
   import "../app.css";
 
@@ -17,7 +18,7 @@
 <div class="min-h-screen">
   <header class="border-b border-slate-200 bg-white">
     <div class="mx-auto flex max-w-6xl items-center gap-6 px-4 py-3">
-      <span class="font-semibold">Truco</span>
+      <a href="/"><img src={LOGO} alt="Truco" width="200" height="72" class="h-9 w-auto" /></a>
       <nav class="flex gap-4 text-sm">
         {#each nav as item (item.href)}
           <a
