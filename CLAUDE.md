@@ -11,7 +11,9 @@ Stack:
 ```
 UI ──/api (vite proxy)──▶ FastAPI ──▶ SQLite  data/app.sqlite   (SQLModel)
                              │
-                             └─ app/truco/   pure-Python game engine + tournament logic
+                             ├─ app/truco/   pure-Python game engine + tournament logic
+                             ├─ app/bots/    configurable local bot strategies (strict + interactive)
+                             └─ app/games/   in-memory game sessions: seats, tokens, bots, per-seat views
 ```
 
 - **Two rule modes**, chosen when a tournament or one-off game starts: strict (restricted moves, for the RL bot) and interactive (simulated real table for multiplayer, engine as referee). See `backend/CLAUDE.md`.

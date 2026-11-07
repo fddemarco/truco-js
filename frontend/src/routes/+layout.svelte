@@ -6,7 +6,11 @@
 
   let { children } = $props();
 
-  const nav: { href: string; label: MessageKey }[] = [{ href: "/rules", label: "nav.rules" }];
+  const nav: { href: string; label: MessageKey }[] = [
+    { href: "/rules", label: "nav.rules" },
+    { href: "/play", label: "nav.play" },
+    { href: "/bots", label: "nav.bots" },
+  ];
 
   $effect(() => {
     document.documentElement.lang = i18n.locale;

@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.db import init_db
-from app.routers import health
+from app.routers import bots, games, health
 
 logging.basicConfig(level=logging.INFO)
 
@@ -27,7 +27,7 @@ def create_app() -> FastAPI:
     )
 
     api = APIRouter(prefix="/api")
-    for module in (health,):
+    for module in (health, bots, games):
         api.include_router(module.router)
     app.include_router(api)
     return app

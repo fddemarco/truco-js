@@ -84,6 +84,11 @@ class Match:
     def finished(self) -> bool:
         return self.result is not None
 
+    @property
+    def last_hand(self) -> Contest | PicaPicaHand | None:
+        """The last finished mano (its cards stay visible until the next deal)."""
+        return self._last_hand
+
     def next_hand_kind(self) -> HandKind:
         """Pica-pica alternates with redonda after a team reaches 5, until one reaches 25 (15.1)."""
         if not self.pica_pica_started or max(self.score) >= PICA_PICA_UNTIL:

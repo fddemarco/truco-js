@@ -13,6 +13,7 @@
     "lint": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && prettier --check .",
     "format": "prettier --write .",
     "gen-cards": "node scripts/generate-cards.mjs",
+    "gen-avatars": "node scripts/generate-avatars.mjs",
     "gen-api": "openapi-typescript openapi.json --default-non-nullable false -o src/lib/api/schema.d.ts && prettier --write src/lib/api/schema.d.ts"
   },
   "dependencies": {

@@ -21,14 +21,692 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/bots/presets": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List Presets */
+    get: operations["list_presets_api_bots_presets_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/bots": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List Bots */
+    get: operations["list_bots_api_bots_get"];
+    put?: never;
+    /** Create Bot */
+    post: operations["create_bot_api_bots_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/bots/{bot_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** Delete Bot */
+    delete: operations["delete_bot_api_bots__bot_id__delete"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/games": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** New Game */
+    post: operations["new_game_api_games_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/games/{game_id}/join": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Join Game */
+    post: operations["join_game_api_games__game_id__join_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/games/{game_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Game View */
+    get: operations["game_view_api_games__game_id__get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/games/{game_id}/act": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Act */
+    post: operations["act_api_games__game_id__act_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/games/{game_id}/deal": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Deal */
+    post: operations["deal_api_games__game_id__deal_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/games/{game_id}/sena": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Sena */
+    post: operations["sena_api_games__game_id__sena_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    /** ActRequest */
+    ActRequest: {
+      /** Token */
+      token: string;
+      action: components["schemas"]["ActionModel-Input"];
+    };
+    /**
+     * ActionKind
+     * @enum {string}
+     */
+    ActionKind:
+      | "jugar"
+      | "envido"
+      | "real_envido"
+      | "falta_envido"
+      | "truco"
+      | "retruco"
+      | "vale_cuatro"
+      | "quiero"
+      | "no_quiero"
+      | "me_voy_al_mazo"
+      | "nos_vamos_al_mazo"
+      | "sena"
+      | "declarar"
+      | "son_buenas"
+      | "reclamar"
+      | "objetar"
+      | "pedir_perdon"
+      | "aceptar_perdon"
+      | "tapar"
+      | "mostrar";
+    /** ActionModel */
+    "ActionModel-Input": {
+      kind: components["schemas"]["ActionKind"];
+      card?: components["schemas"]["CardModel"] | null;
+      /** Number */
+      number?: number | null;
+      sena?: components["schemas"]["Sena"] | null;
+    };
+    /** ActionModel */
+    "ActionModel-Output": {
+      kind: components["schemas"]["ActionKind"];
+      card: components["schemas"]["CardModel"] | null;
+      /** Number */
+      number: number | null;
+      sena: components["schemas"]["Sena"] | null;
+    };
+    /**
+     * BodySpot
+     * @enum {string}
+     */
+    BodySpot:
+      | "cejas"
+      | "ojo_derecho"
+      | "ojos"
+      | "comisura_derecha"
+      | "comisura_izquierda"
+      | "labio_inferior"
+      | "labios"
+      | "boca"
+      | "nariz"
+      | "muneca_derecha"
+      | "muneca_izquierda"
+      | "codo_derecho"
+      | "codo_izquierdo"
+      | "hombro_derecho"
+      | "hombro_izquierdo";
+    /** BotConfigCreate */
+    BotConfigCreate: {
+      /** Name */
+      name: string;
+      settings: components["schemas"]["BotSettings-Input"];
+    };
+    /** BotConfigRead */
+    BotConfigRead: {
+      /** Id */
+      id: number;
+      /** Name */
+      name: string;
+      settings: components["schemas"]["BotSettings-Output"];
+      /**
+       * Created At
+       * Format: date-time
+       */
+      created_at: string;
+    };
+    /** BotPreset */
+    BotPreset: {
+      /** Key */
+      key: string;
+      /** Name */
+      name: string;
+      settings: components["schemas"]["BotSettings-Output"];
+    };
+    /**
+     * BotSettings
+     * @description Envido thresholds are tantos (0–33). Truco thresholds compare the bot's best remaining
+     *     card on the truco hierarchy, 1 (a 4) to 14 (1 de espadas), Anexo A.
+     */
+    "BotSettings-Input": {
+      /** @default strongest_first */
+      card_order?: components["schemas"]["CardOrder"];
+      /** @default threshold */
+      envido_sing?: components["schemas"]["Policy"];
+      /**
+       * Envido Sing Threshold
+       * @default 27
+       */
+      envido_sing_threshold?: number;
+      /** @default envido */
+      envido_call?: components["schemas"]["EnvidoCall"];
+      /** @default threshold */
+      envido_accept?: components["schemas"]["Policy"];
+      /**
+       * Envido Accept Threshold
+       * @default 25
+       */
+      envido_accept_threshold?: number;
+      /** Envido Raise Threshold */
+      envido_raise_threshold?: number | null;
+      /** @default threshold */
+      truco_sing?: components["schemas"]["Policy"];
+      /**
+       * Truco Sing Threshold
+       * @default 11
+       */
+      truco_sing_threshold?: number;
+      /** @default threshold */
+      truco_accept?: components["schemas"]["Policy"];
+      /**
+       * Truco Accept Threshold
+       * @default 10
+       */
+      truco_accept_threshold?: number;
+      /** Truco Raise Threshold */
+      truco_raise_threshold?: number | null;
+      /**
+       * Bluff
+       * @default 0
+       */
+      bluff?: number;
+    };
+    /**
+     * BotSettings
+     * @description Envido thresholds are tantos (0–33). Truco thresholds compare the bot's best remaining
+     *     card on the truco hierarchy, 1 (a 4) to 14 (1 de espadas), Anexo A.
+     */
+    "BotSettings-Output": {
+      /** @default strongest_first */
+      card_order: components["schemas"]["CardOrder"];
+      /** @default threshold */
+      envido_sing: components["schemas"]["Policy"];
+      /**
+       * Envido Sing Threshold
+       * @default 27
+       */
+      envido_sing_threshold: number;
+      /** @default envido */
+      envido_call: components["schemas"]["EnvidoCall"];
+      /** @default threshold */
+      envido_accept: components["schemas"]["Policy"];
+      /**
+       * Envido Accept Threshold
+       * @default 25
+       */
+      envido_accept_threshold: number;
+      /** Envido Raise Threshold */
+      envido_raise_threshold: number | null;
+      /** @default threshold */
+      truco_sing: components["schemas"]["Policy"];
+      /**
+       * Truco Sing Threshold
+       * @default 11
+       */
+      truco_sing_threshold: number;
+      /** @default threshold */
+      truco_accept: components["schemas"]["Policy"];
+      /**
+       * Truco Accept Threshold
+       * @default 10
+       */
+      truco_accept_threshold: number;
+      /** Truco Raise Threshold */
+      truco_raise_threshold: number | null;
+      /**
+       * Bluff
+       * @default 0
+       */
+      bluff: number;
+    };
+    /** CardModel */
+    CardModel: {
+      /** Number */
+      number: number;
+      /** Suit */
+      suit: string;
+    };
+    /**
+     * CardOrder
+     * @enum {string}
+     */
+    CardOrder: "strongest_first" | "weakest_first" | "cheapest_winner" | "random";
+    /**
+     * EnvidoCall
+     * @enum {string}
+     */
+    EnvidoCall: "envido" | "real_envido" | "falta_envido";
+    /** EnvidoView */
+    EnvidoView: {
+      /** Calls */
+      calls: string[];
+      /** Accepted */
+      accepted: boolean;
+      /** Team */
+      team: number;
+      /** Points */
+      points: number;
+      /** Winner Seat */
+      winner_seat: number | null;
+      /**
+       * Tantos
+       * @default {}
+       */
+      tantos: {
+        [key: string]: number | null;
+      };
+    };
+    /** EventView */
+    EventView: {
+      /** Seat */
+      seat: number | null;
+      /** Kind */
+      kind: string;
+      card: components["schemas"]["CardModel"] | null;
+      /** Number */
+      number: number | null;
+      /** Points */
+      points: number[] | null;
+      /** Upheld */
+      upheld: boolean | null;
+    };
+    /** GameCreate */
+    GameCreate: {
+      /** @default strict */
+      mode?: components["schemas"]["RuleMode"];
+      /** Seats */
+      seats: components["schemas"]["SeatSetup"][];
+    };
+    /** GameCreated */
+    GameCreated: {
+      /** Id */
+      id: string;
+    };
+    /** GameView */
+    GameView: {
+      /** Id */
+      id: string;
+      mode: components["schemas"]["RuleMode"];
+      /** Version */
+      version: number;
+      /** Server Ms */
+      server_ms: number;
+      /** Started */
+      started: boolean;
+      /** Seats */
+      seats: components["schemas"]["SeatView"][];
+      /** Score */
+      score: number[];
+      /** Hand Number */
+      hand_number: number;
+      /** Hand Kind */
+      hand_kind: string | null;
+      /** Dealer */
+      dealer: number;
+      /** Mano */
+      mano: number | null;
+      /** To Act */
+      to_act: number | null;
+      /** Duel */
+      duel: number[] | null;
+      /**
+       * Rounds
+       * @default []
+       */
+      rounds: components["schemas"]["PlayView"][][];
+      /**
+       * Results
+       * @default []
+       */
+      results: (number | null)[];
+      /**
+       * Pending
+       * @default []
+       */
+      pending: components["schemas"]["PendingView"][];
+      /**
+       * Envido Calls
+       * @default []
+       */
+      envido_calls: string[];
+      /**
+       * Truco Level
+       * @default 0
+       */
+      truco_level: number;
+      /**
+       * Truco Accepted
+       * @default 0
+       */
+      truco_accepted: number;
+      envido: components["schemas"]["EnvidoView"] | null;
+      /**
+       * Declarations
+       * @default {}
+       */
+      declarations: {
+        [key: string]: number | null;
+      };
+      /**
+       * Can Deal
+       * @default false
+       */
+      can_deal: boolean;
+      result: components["schemas"]["ResultView"] | null;
+      /**
+       * Events
+       * @default []
+       */
+      events: components["schemas"]["EventView"][];
+      /**
+       * Senas
+       * @default []
+       */
+      senas: components["schemas"]["SenaView"][];
+      /** Me */
+      me: number | null;
+      /**
+       * My Cards
+       * @default []
+       */
+      my_cards: components["schemas"]["CardModel"][];
+      /**
+       * Actions
+       * @default []
+       */
+      actions: components["schemas"]["ActionModel-Output"][];
+      /**
+       * Senas Seen
+       * @default []
+       */
+      senas_seen: components["schemas"]["SenaSeenView"][];
+    };
+    /** HTTPValidationError */
+    HTTPValidationError: {
+      /** Detail */
+      detail?: components["schemas"]["ValidationError"][];
+    };
     /** Health */
     Health: {
       /** Status */
       status: string;
+    };
+    /** JoinRequest */
+    JoinRequest: {
+      /** Seat */
+      seat: number;
+      /**
+       * Name
+       * @default
+       */
+      name?: string;
+    };
+    /** Joined */
+    Joined: {
+      /** Seat */
+      seat: number;
+      /** Token */
+      token: string;
+    };
+    /** PendingView */
+    PendingView: {
+      /**
+       * Family
+       * @enum {string}
+       */
+      family: "envido" | "truco";
+      /** Chanter */
+      chanter: number;
+      /** In Turn */
+      in_turn: boolean;
+      /** Irregular */
+      irregular: boolean;
+    };
+    /** PlayView */
+    PlayView: {
+      /** Seat */
+      seat: number;
+      card: components["schemas"]["CardModel"];
+    };
+    /**
+     * Policy
+     * @enum {string}
+     */
+    Policy: "always" | "never" | "threshold";
+    /** ResultView */
+    ResultView: {
+      /** Kind */
+      kind: string;
+      /** Winner */
+      winner: number | null;
+    };
+    /**
+     * RuleMode
+     * @enum {string}
+     */
+    RuleMode: "strict" | "interactive";
+    /** SeatSetup */
+    SeatSetup: {
+      /**
+       * Kind
+       * @enum {string}
+       */
+      kind: "human" | "bot";
+      /**
+       * Name
+       * @default
+       */
+      name?: string;
+      /** Bot Preset */
+      bot_preset?: string | null;
+      /** Bot Id */
+      bot_id?: number | null;
+    };
+    /** SeatView */
+    SeatView: {
+      /** Seat */
+      seat: number;
+      /** Team */
+      team: number;
+      /** Number */
+      number: number;
+      /** Name */
+      name: string;
+      /**
+       * Kind
+       * @enum {string}
+       */
+      kind: "human" | "bot";
+      /** Joined */
+      joined: boolean;
+      /** In Play */
+      in_play: boolean;
+      /** Active */
+      active: boolean;
+      /** Cards Left */
+      cards_left: number;
+      /**
+       * Shown
+       * @default []
+       */
+      shown: components["schemas"]["CardModel"][];
+    };
+    /**
+     * Sena
+     * @enum {string}
+     */
+    Sena:
+      | "sena_01"
+      | "sena_02"
+      | "sena_03"
+      | "sena_04"
+      | "sena_05"
+      | "sena_06"
+      | "sena_07"
+      | "sena_08"
+      | "sena_09"
+      | "sena_10"
+      | "sena_11"
+      | "sena_12";
+    /** SenaRequest */
+    SenaRequest: {
+      /** Token */
+      token: string;
+      sena: components["schemas"]["Sena"];
+      spot: components["schemas"]["BodySpot"];
+      /** Duration Ms */
+      duration_ms: number;
+      /** Target */
+      target?: number | null;
+    };
+    /** SenaSeenView */
+    SenaSeenView: {
+      /** Seat */
+      seat: number;
+      sena: components["schemas"]["Sena"];
+      /** Ronda */
+      ronda: number;
+    };
+    /** SenaView */
+    SenaView: {
+      /** Seat */
+      seat: number;
+      sena: components["schemas"]["Sena"];
+      spot: components["schemas"]["BodySpot"];
+      /** Target */
+      target: number | null;
+      /** Start Ms */
+      start_ms: number;
+      /** Duration Ms */
+      duration_ms: number;
+    };
+    /** TokenRequest */
+    TokenRequest: {
+      /** Token */
+      token: string;
+    };
+    /** ValidationError */
+    ValidationError: {
+      /** Location */
+      loc: (string | number)[];
+      /** Message */
+      msg: string;
+      /** Error Type */
+      type: string;
+      /** Input */
+      input?: unknown;
+      /** Context */
+      ctx?: Record<string, never>;
     };
   };
   responses: never;
@@ -55,6 +733,314 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["Health"];
+        };
+      };
+    };
+  };
+  list_presets_api_bots_presets_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["BotPreset"][];
+        };
+      };
+    };
+  };
+  list_bots_api_bots_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["BotConfigRead"][];
+        };
+      };
+    };
+  };
+  create_bot_api_bots_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BotConfigCreate"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["BotConfigRead"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  delete_bot_api_bots__bot_id__delete: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        bot_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  new_game_api_games_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["GameCreate"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GameCreated"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  join_game_api_games__game_id__join_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        game_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["JoinRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Joined"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  game_view_api_games__game_id__get: {
+    parameters: {
+      query?: {
+        token?: string | null;
+      };
+      header?: never;
+      path: {
+        game_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GameView"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  act_api_games__game_id__act_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        game_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ActRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GameView"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  deal_api_games__game_id__deal_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        game_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["TokenRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GameView"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  sena_api_games__game_id__sena_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        game_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["SenaRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GameView"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
         };
       };
     };

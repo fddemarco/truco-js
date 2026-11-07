@@ -229,6 +229,10 @@ class Contest:
     def live_scores(self) -> tuple[int, int]:
         return (self.scores[0] + self.points[0], self.scores[1] + self.points[1])
 
+    def pending_canto(self) -> Pending | None:
+        """The canto that must be answered now, if any."""
+        return self._answerable()
+
     def senas_seen(self, seat: int) -> list[SenaSeen]:
         """Strict mode: the señas `seat` noticed."""
         return list(self._seen.get(seat, []))

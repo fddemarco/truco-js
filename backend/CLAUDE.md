@@ -5,8 +5,14 @@ app/
   main.py        app factory; routers mounted under /api
   config.py      Settings (env / ../.env): DATA_DIR, CORS_ORIGINS
   db.py          SQLite engine + get_session dependency
-  models.py      SQLModel tables + Create/Update/Read schemas
-  routers/       one module per resource; each exposes `router`
+  models.py      SQLModel tables + Create/Update/Read schemas (BotConfig: saved bots)
+  routers/       one module per resource; each exposes `router` (health, bots, games)
+  games/
+    session.py     GameSession: in-memory Match + seats (human tokens / bots), per-seat views, bots auto-play
+    schemas.py     API models for game setup, actions and views
+  bots/
+    settings.py    BotSettings (card order, envido/truco policies + thresholds, bluff) + 5 PRESETS
+    strategy.py    choose_action(hand, settings, rng, seat): local, non-cooperative, strict + interactive
   truco/         game engine and tournament logic (no FastAPI/DB imports)
     config.py      RuleMode (strict | interactive) + GameConfig
     cards.py       Card, Suit, 40-card deck, truco rank (Anexo A)
@@ -17,10 +23,12 @@ app/
     hand.py        Contest (mano redonda or one duelo) + PicaPicaHand: step API, both modes
     match.py       Match: deals, redonda/pica-pica alternation, 30 cap, reclamos, señas, sanctions, results
     standings.py   group standings and tiebreakers (1.13, 1.14)
+    edition.py     Edition (rule mode + phases): group draw, round robin, qualifiers, bracket, warning accumulation (1.8, 19.2)
     signals.py     Sena catalogue (Anexo C), body spots, SenaSeen (strict), SenaEvent (interactive)
 scripts/export_openapi.py   writes ../frontend/openapi.json (used by `make gen-api`)
 tests/           pytest; the `client` fixture gives a TestClient on a tmp DATA_DIR
   truco/         engine tests
+  bots/          bot strategy tests
 ```
 
 ## Truco engine
@@ -34,6 +42,11 @@ tests/           pytest; the `client` fixture gives a TestClient on a tmp DATA_D
 - Points the reglamento leaves open, confirmed by the project owner (each has a test):
   - Raising (retruco/vale cuatro) as an answer counts as accepting the previous level.
   - Envido can't be sung once a truco is querido.
+
+## Games and multiplayer
+- `/api/games`: create (mode + 6 seats, human or bot), join a seat (returns a token), get the view (`?token=` for a seat's private cards and actions), act, deal the next mano, interactive señas.
+- Sessions are in memory: restarting the API drops running games. Clients poll the view (`version` changes on every move). A device holding every human token is local multiplayer; one token per device is online multiplayer.
+- Bots play right after each human move, while `to_act` is a bot. A game starts once every human seat has joined.
 
 ## Conventions
 - Type every route's return value (`-> TeamRead`). FastAPI derives `response_model` and OpenAPI from it, which feeds the frontend types.

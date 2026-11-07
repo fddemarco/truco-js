@@ -1,7 +1,6 @@
 """Group standings and tiebreakers (1.13, 1.14).
 
-TODO: phases, groups, bracket and best-runner-up quotas are defined per edition in the
-Condiciones Particulares (1.8). So is warning accumulation across partidos (19.2).
+Phases, groups, brackets and qualification across groups are in `edition.py`.
 """
 
 import random
