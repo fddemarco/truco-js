@@ -1,4 +1,4 @@
-"""SQLite: application config and run history."""
+"""SQLite: tournaments, teams and match records."""
 
 from collections.abc import Iterator
 from functools import lru_cache

@@ -5,12 +5,6 @@ import type { components, paths } from "./schema";
 export const api = createClient<paths>({ baseUrl: "" });
 
 export type Schemas = components["schemas"];
-export type Pipeline = Schemas["PipelineRead"];
-export type PipelineCreate = Schemas["PipelineCreate"];
-export type Run = Schemas["RunRead"];
-export type RunStatus = Schemas["RunStatus"];
-export type Table = Schemas["Table"];
-export type TablePreview = Schemas["TablePreview"];
 
 /** Pull a readable message out of a FastAPI error body. */
 export function errorMessage(error: unknown): string {

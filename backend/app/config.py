@@ -23,10 +23,6 @@ class Settings(BaseSettings):
     def sqlite_path(self) -> Path:
         return self.data_dir / "app.sqlite"
 
-    @property
-    def duckdb_path(self) -> Path:
-        return self.data_dir / "warehouse.duckdb"
-
 
 @lru_cache
 def get_settings() -> Settings:

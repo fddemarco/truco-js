@@ -12,10 +12,8 @@ frontend/build/
 .svelte-kit/
 coverage/
 
-# Local data (SQLite config, DuckDB warehouse, dlt state, dbt artifacts)
+# Local data (SQLite)
 /data/
-*.duckdb
-*.duckdb.wal
 *.sqlite
 
 # Env / editors

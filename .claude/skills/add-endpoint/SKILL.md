@@ -7,7 +7,8 @@ description: Add or change a FastAPI endpoint (route, models, tests) and regener
 
 1. **Models** (`backend/app/models.py`):
    - SQLite-backed resources: `<Name>Base(SQLModel)`, `<Name>(Base, table=True)` with an `id` primary key, `<Name>Create`, `<Name>Update` (all optional fields), and `<Name>Read` with `model_config = READ_CONFIG` and `id: int`.
-   - Non-persisted responses: a plain pydantic `BaseModel` next to the router (see `routers/data.py`).
+   - Non-persisted responses: a plain pydantic `BaseModel` next to the router (see `routers/health.py`).
+   - Game rules belong in `app/truco/`, not in routers. Routers only translate between HTTP and the engine.
 2. **Router**: `backend/app/routers/<name>.py`:
    ```python
    router = APIRouter(prefix="/<name>", tags=["<name>"])
@@ -17,7 +18,6 @@ description: Add or change a FastAPI endpoint (route, models, tests) and regener
    ```
    - Annotate every return type, because the OpenAPI schema and TS types come from it.
    - Use sync `def`. Use `HTTPException(404, "...")` for missing rows.
-   - For DuckDB queries, use `with cursor() as cur:` from `app.warehouse` and parameterized SQL.
 3. **Mount**: add the module to the router tuple in `backend/app/main.py`, if it's new.
 4. **Test**: `backend/tests/test_<name>.py` using the `client` fixture. Cover the happy path, the 404 and validation cases.
 5. **Regenerate types**: `make gen-api`. This updates `frontend/src/lib/api/schema.d.ts`. If you want a short alias, add it in `frontend/src/lib/api/client.ts`, e.g. `export type Foo = Schemas["FooRead"]`.

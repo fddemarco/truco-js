@@ -44,5 +44,5 @@ gen-api: ## Regenerate the typed frontend API client from FastAPI's OpenAPI sche
 build: ## Production build of the frontend
 	cd frontend && pnpm build
 
-clean: ## Delete local data (SQLite, DuckDB, dlt state)
+clean: ## Delete local data (SQLite)
 	rm -rf data

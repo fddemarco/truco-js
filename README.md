@@ -2,7 +2,9 @@
 
 Truco tournament webapp with an RL-powered bot
 
-**Stack:** FastAPI · SQLModel/SQLite (config) · dlt → DuckDB (data) · SvelteKit + TypeScript + Tailwind
+**Stack:** FastAPI · SQLModel/SQLite · pure-Python truco engine · SvelteKit + TypeScript + Tailwind
+
+The game follows the official [Se Pica TSA reglamento](docs/reglamento-truco-sepica.md).
 
 ## Requirements
 - [uv](https://docs.astral.sh/uv/) (manages Python 3.12 automatically)
@@ -14,7 +16,7 @@ Truco tournament webapp with an RL-powered bot
 make install
 make dev            # API http://localhost:8000/docs · UI http://localhost:5173
 ```
-Open the UI, create a pipeline with the `example` source, then click **Run** and look at the result on the **Data** page.
+Open the UI to read the reglamento in Spanish or English.
 
 ## Common tasks
 ```bash
@@ -22,12 +24,13 @@ make help           # all targets
 make test           # pytest + vitest
 make lint           # ruff + typecheck + prettier
 make gen-api        # regenerate frontend API types after backend changes
-make clean          # wipe local data (SQLite, DuckDB, dlt state)
+make clean          # wipe local data (SQLite)
 ```
 
 ## Project layout
 ```
-backend/    FastAPI app, dlt sources (app/etl), tests
+backend/    FastAPI app, truco engine (app/truco), tests
+docs/       official reglamento (source of truth for the rules)
 frontend/   SvelteKit SPA
 data/       local state (gitignored)
 .claude/    Claude Code skills + auto-format hook (see CLAUDE.md)

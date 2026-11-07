@@ -1,14 +1,15 @@
 <script lang="ts">
   import { page } from "$app/state";
+  import { i18n, LOCALES, setLocale, t, type MessageKey } from "$lib/i18n.svelte";
   import "../app.css";
 
   let { children } = $props();
 
-  const nav = [
-    { href: "/pipelines", title: "Pipelines" },
-    { href: "/runs", title: "Runs" },
-    { href: "/data", title: "Data" },
-  ];
+  const nav: { href: string; label: MessageKey }[] = [{ href: "/rules", label: "nav.rules" }];
+
+  $effect(() => {
+    document.documentElement.lang = i18n.locale;
+  });
 </script>
 
 <svelte:head><title>Truco</title></svelte:head>
@@ -25,10 +26,23 @@
               ? "font-semibold text-indigo-600"
               : "text-slate-600 hover:text-slate-900"}
           >
-            {item.title}
+            {t(item.label)}
           </a>
         {/each}
       </nav>
+      <div class="ml-auto flex gap-1 text-xs" role="group" aria-label={t("lang.label")}>
+        {#each LOCALES as locale (locale)}
+          <button
+            class="rounded px-2 py-1 font-medium uppercase {i18n.locale === locale
+              ? 'bg-indigo-600 text-white'
+              : 'text-slate-600 hover:bg-slate-100'}"
+            aria-pressed={i18n.locale === locale}
+            onclick={() => setLocale(locale)}
+          >
+            {locale}
+          </button>
+        {/each}
+      </div>
     </div>
   </header>
   <main class="mx-auto max-w-6xl px-4 py-6">
