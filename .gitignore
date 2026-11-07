@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+frontend/dist/
+frontend/build/
+.svelte-kit/
+coverage/
+
+# Local data (SQLite config, DuckDB warehouse, dlt state, dbt artifacts)
+/data/
+*.duckdb
+*.duckdb.wal
+*.sqlite
+
+# Env / editors
+.env
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Claude Code personal settings
+.claude/settings.local.json

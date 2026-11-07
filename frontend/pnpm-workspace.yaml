@@ -1,0 +1,5 @@
+# Dependencies allowed to run install scripts.
+allowBuilds: # pnpm >= 11
+  esbuild: true
+onlyBuiltDependencies: # pnpm 10
+  - esbuild

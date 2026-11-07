@@ -1,0 +1,35 @@
+[project]
+name = "truco-api"
+version = "0.1.0"
+description = "Truco tournament webapp with an RL-powered bot"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlmodel>=0.0.22",
+    "pydantic-settings>=2.4",
+    "duckdb>=1.1",
+    "dlt[duckdb]>=1.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "httpx2>=2.0",
+    "ruff>=0.6",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["B008"]  # FastAPI Depends() in defaults
