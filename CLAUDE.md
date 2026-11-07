@@ -21,6 +21,7 @@ UI ──/api (vite proxy)──▶ FastAPI ──▶ SQLite  data/app.sqlite   
 - `backend/app/truco/` has no web or DB dependencies, so the API and the future RL bot share it. See `backend/CLAUDE.md`.
 - The UI shows the reglamento in Spanish and English (`frontend/src/lib/rules/`). Game terms (mano, ronda, envido, truco, pica-pica, parda, quiero, irse al mazo, malas/buenas, señas...) stay in Spanish in every language, in UI copy too.
 - Everything under `data/` is local state and gitignored. `make clean` resets it.
+- **Art** (avatars, señas, cards) is made with an image model from `docs/art-prompts.md`. Source images live in `assets/` (gitignored, local). Avatar galleries are cut out and aligned by `tools/art/avatars.py`, a standalone uv script, which also builds mirror-image señas (03 from 04, 02 from a wrong-side wink); `tools/art/mirror-recipes.sh` records how each one was made. `pnpm import-art` writes the committed WebPs to `frontend/static/`. The workflow and the review bar for señas are in `docs/art-prompts.md`.
 
 ## Commands
 
@@ -32,6 +33,9 @@ UI ──/api (vite proxy)──▶ FastAPI ──▶ SQLite  data/app.sqlite   
 | Lint + typecheck | `make lint` |
 | Format | `make fmt` |
 | Regenerate TS API types | `make gen-api` |
+| Process an avatar gallery | `uv run tools/art/avatars.py sheet <character> <gallery>` |
+| Mirror a seña (03 from 04, 02 from a wrong wink) | `uv run tools/art/avatars.py mirror ...` (recipes in `tools/art/mirror-recipes.sh`) |
+| Import approved art | `cd frontend && pnpm import-art [--partial]` |
 
 Run Python through uv (`cd backend && uv run ...`) and JS through pnpm (`cd frontend && pnpm ...`). Never use pip or npm.
 

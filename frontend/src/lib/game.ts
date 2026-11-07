@@ -42,7 +42,7 @@ export function seatPosition(seat: number, viewer: number): SeatPosition {
   return POSITIONS[(seat - viewer + 6) % 6];
 }
 
-/** Hold a key to make a seña: 1–9, 0, - and = are señas 01–12; Shift picks the left side. */
+/** Hold a key to make a seña: 1–7 are señas 01–07, 8 is seña 12. */
 const SENA_CODES: Record<string, Sena> = {
   Digit1: "sena_01",
   Digit2: "sena_02",
@@ -51,18 +51,12 @@ const SENA_CODES: Record<string, Sena> = {
   Digit5: "sena_05",
   Digit6: "sena_06",
   Digit7: "sena_07",
-  Digit8: "sena_08",
-  Digit9: "sena_09",
-  Digit0: "sena_10",
-  Minus: "sena_11",
-  Equal: "sena_12",
+  Digit8: "sena_12",
 };
 
-export function senaForCode(code: string, shift: boolean): { sena: Sena; spot: BodySpot } | null {
+export function senaForCode(code: string): { sena: Sena; spot: BodySpot } | null {
   const sena = SENA_CODES[code];
-  if (!sena) return null;
-  const spots = SPOTS[sena];
-  return { sena, spot: shift && spots.length > 1 ? spots[1] : spots[0] };
+  return sena ? { sena, spot: SPOTS[sena][0] } : null;
 }
 
 /** The seña each seat is showing at `serverNow`. */

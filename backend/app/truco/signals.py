@@ -12,6 +12,7 @@ from enum import StrEnum
 
 
 class Sena(StrEnum):
+    # Numbered as in C.2. There is no 08, 09, 10 (figures) or 11 (no truco cards): see C.3.
     ANCHO_DE_ESPADAS = "sena_01"  # levantar ambas cejas
     ANCHO_DE_BASTOS = "sena_02"  # guiñar el ojo derecho
     SIETE_DE_ESPADAS = "sena_03"  # comisura de los labios hacia la derecha
@@ -19,29 +20,18 @@ class Sena(StrEnum):
     TRES = "sena_05"  # morder suavemente el labio inferior
     DOS = "sena_06"  # fruncir y proyectar los labios (beso)
     ANCHO_FALSO = "sena_07"  # abrir ligeramente la boca
-    SOTA = "sena_08"  # tocarse la muñeca
-    CABALLO = "sena_09"  # tocarse el codo
-    REY = "sena_10"  # tocarse el hombro
-    SIN_CARTAS_DE_TRUCO = "sena_11"  # cerrar ambos ojos
     BUEN_ENVIDO = "sena_12"  # fruncir la nariz
 
 
 class BodySpot(StrEnum):
     CEJAS = "cejas"
     OJO_DERECHO = "ojo_derecho"
-    OJOS = "ojos"
     COMISURA_DERECHA = "comisura_derecha"
     COMISURA_IZQUIERDA = "comisura_izquierda"
     LABIO_INFERIOR = "labio_inferior"
     LABIOS = "labios"
     BOCA = "boca"
     NARIZ = "nariz"
-    MUNECA_DERECHA = "muneca_derecha"
-    MUNECA_IZQUIERDA = "muneca_izquierda"
-    CODO_DERECHO = "codo_derecho"
-    CODO_IZQUIERDO = "codo_izquierdo"
-    HOMBRO_DERECHO = "hombro_derecho"
-    HOMBRO_IZQUIERDO = "hombro_izquierdo"
 
 
 # Where each gesture can be made. Right and left are from the signaller's view (C.1).
@@ -53,10 +43,6 @@ SPOTS: dict[Sena, tuple[BodySpot, ...]] = {
     Sena.TRES: (BodySpot.LABIO_INFERIOR,),
     Sena.DOS: (BodySpot.LABIOS,),
     Sena.ANCHO_FALSO: (BodySpot.BOCA,),
-    Sena.SOTA: (BodySpot.MUNECA_DERECHA, BodySpot.MUNECA_IZQUIERDA),
-    Sena.CABALLO: (BodySpot.CODO_DERECHO, BodySpot.CODO_IZQUIERDO),
-    Sena.REY: (BodySpot.HOMBRO_DERECHO, BodySpot.HOMBRO_IZQUIERDO),
-    Sena.SIN_CARTAS_DE_TRUCO: (BodySpot.OJOS,),
     Sena.BUEN_ENVIDO: (BodySpot.NARIZ,),
 }
 

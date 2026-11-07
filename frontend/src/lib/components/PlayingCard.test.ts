@@ -9,19 +9,19 @@ describe("PlayingCard", () => {
     render(PlayingCard, { number: 1, suit: "espada" });
     const img = screen.getByRole("img", { name: "1 de espadas" });
     expect(img.tagName).toBe("IMG");
-    expect(img.getAttribute("src")).toBe("/cards/1-espada.svg");
+    expect(img.getAttribute("src")).toBe("/cards/1-espada.webp");
   });
 
   it("hides the face when face down", () => {
     render(PlayingCard, { number: 7, suit: "oro", faceDown: true });
     const img = screen.getByRole("img", { name: "Dorso" });
-    expect(img.getAttribute("src")).toBe("/cards/dorso.svg");
+    expect(img.getAttribute("src")).toBe("/cards/dorso.webp");
   });
 
   it("shows a comodín", () => {
     render(PlayingCard, { comodin: 2 });
     expect(screen.getByRole("img", { name: "Comodín" }).getAttribute("src")).toBe(
-      "/cards/comodin-2.svg",
+      "/cards/comodin-2.webp",
     );
   });
 
@@ -34,7 +34,7 @@ describe("PlayingCard", () => {
     const fallback = screen.getByRole("img", { name: "12 de copas" });
     expect(fallback.tagName).toBe("DIV");
     expect(fallback.textContent?.trim()).toBe("12 de copas");
-    expect(log).toHaveBeenCalledWith("Could not load card image /cards/12-copa.svg");
+    expect(log).toHaveBeenCalledWith("Could not load card image /cards/12-copa.webp");
   });
 
   it("retries when the card changes after a failed load", async () => {

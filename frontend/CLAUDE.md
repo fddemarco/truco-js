@@ -15,15 +15,15 @@ src/
     cards.ts             card/suit asset paths + Spanish card names
     bots.ts              bot setting options (card orders, policies, truco ranks)
     game.ts              table helpers: action labels, seat positions, seña keys, seat tokens
-    avatar/avatar.ts     toon avatars + señas as SVG strings (Sena/BodySpot match the backend)
+    avatar/avatar.ts     six seat characters + seña image paths (Sena/BodySpot match the backend)
     i18n.svelte.ts       locale state (es/en, persisted) + `t(key)` UI strings
     rules/               SECTIONS + es/<slug>.md and en/<slug>.md reglamento pages
     components/          reusable components + colocated *.test.ts (PlayingCard: face, dorso or comodín; Avatar: seat avatar showing a seña; BotConfigurator: preset selector + advanced settings + save as; GameTable: the table for one viewer)
-scripts/generate-cards.mjs   generates the card art in static/ (`pnpm gen-cards`)
-scripts/generate-avatars.mjs writes avatar/seña previews from avatar.ts (`pnpm gen-avatars`)
+scripts/generate-cards.mjs   generates suit icons, fósforo, favicon and logo SVGs (`pnpm gen-cards`)
+scripts/import-art.mjs       imports raster art from ../assets/ (gitignored) as WebP (`pnpm import-art`)
 static/
-  cards/                 <n>-<suit>.svg (1–12 × 4 suits), comodin-1/2.svg, dorso.svg
-  avatars/avatar-<1..6>.svg, senas/<sena>[-<spot>].svg   previews (the game renders Avatar inline)
+  cards/                 <n>-<suit>.webp (1–12 × 4 suits), comodin-1/2.webp, dorso.webp
+  avatars/<character>/<variant>.webp   base + one per seña (9, see avatar.ts VARIANTS) + portrait.webp for avatar selection
   suits/<suit>.svg, ui/fosforo.svg, favicon.svg, logo.svg
     format.ts            small pure helpers (+ format.test.ts)
 ```
@@ -39,7 +39,7 @@ static/
 - Read URL state with `page` from `$app/state` and navigate with `goto` from `$app/navigation`.
 - Every user-facing string goes through `t("key")` from `$lib/i18n.svelte`. Add the key to both `es` and `en`. Keep game terms (mano, envido, truco, pica-pica, señas...) in Spanish in the English copy.
 - Reglamento pages: `lib/rules/es/*.md` is the official text, copied from `docs/reglamento-truco-sepica.md`. `en/*.md` is its translation. Keep both in sync. A new page needs an entry in `SECTIONS` whose title matches the file's `# heading`.
-- Card and suit art is generated: edit `scripts/generate-cards.mjs` and run `pnpm gen-cards`, never edit the SVGs by hand. Avatars and señas live in `lib/avatar/avatar.ts`; run `pnpm gen-avatars` after changing it. Use paths from `$lib/cards` rather than hard-coding them.
+- Card, avatar and seña art is raster, made with an image model from `docs/art-prompts.md`: avatar galleries are cut out and aligned by `tools/art/avatars.py`, approved sources go in `../assets/avatars/approved/` and `../assets/cards/` (workflow and review bar in `docs/art-prompts.md`), then run `pnpm import-art`; never edit the WebPs in `static/` by hand. Suit icons and small UI art are generated: edit `scripts/generate-cards.mjs` and run `pnpm gen-cards`. Use paths from `$lib/cards` and `$lib/avatar/avatar` rather than hard-coding them.
 - Tests cover behaviour (logic, rendering, error states), not configuration or content: don't write tests that only check that files, assets or translations exist.
 - Style with Tailwind utilities and the shared classes in `app.css`.
 - In dev, the Vite server proxies `/api` to `localhost:8000`.
@@ -49,4 +49,5 @@ static/
 - `pnpm test`: Vitest (jsdom, @testing-library/svelte)
 - `pnpm lint`: svelte-check + prettier check
 - `pnpm build`: static output in `build/`
-- `pnpm gen-cards`: regenerate the card art in `static/`
+- `pnpm gen-cards`: regenerate suit icons, fósforo, favicon and logo in `static/`
+- `pnpm import-art [--partial]`: import card/avatar art from `../assets/` (prompts in `docs/art-prompts.md`)

@@ -1,9 +1,15 @@
 <script lang="ts">
-  import { avatarSvg, LOOKS, type BodySpot, type Look, type Sena } from "$lib/avatar/avatar";
+  import {
+    avatarSrc,
+    avatarVariants,
+    characterFor,
+    type BodySpot,
+    type Sena,
+  } from "$lib/avatar/avatar";
 
   interface Props {
-    /** A `Look` or an index into the seat presets. */
-    look: Look | number;
+    /** Seat index; each seat gets one of the six characters. */
+    character: number;
     label: string;
     /** The seña being shown right now; the table clears it after its duration. */
     sena?: Sena;
@@ -11,13 +17,60 @@
     class?: string;
   }
 
-  let { look, label, sena, spot, class: className = "" }: Props = $props();
+  let { character, label, sena, spot, class: className = "" }: Props = $props();
 
-  const resolved = $derived(typeof look === "number" ? LOOKS[look % LOOKS.length] : look);
-  // Built from our own code, never from user input: safe to render as HTML.
-  const svg = $derived(avatarSvg({ look: resolved, sena, spot }));
+  const id = $derived(characterFor(character));
+  const base = $derived(avatarSrc(id));
+  const wanted = $derived(avatarSrc(id, sena, spot));
+
+  // Señas last about half a second: load every variant up front so none flashes blank.
+  $effect(() => {
+    for (const s of avatarVariants(id)) new Image().src = s;
+  });
+
+  // A missing seña image shows the neutral face; a missing neutral face shows the initial.
+  let failedSrcs = $state<string[]>([]);
+  const src = $derived(failedSrcs.includes(wanted) ? base : wanted);
+  const failed = $derived(failedSrcs.includes(src));
+
+  function onError() {
+    failedSrcs = [...failedSrcs, src];
+    console.error(`Could not load avatar image ${src}`);
+  }
 </script>
 
-<div role="img" aria-label={label} class="aspect-[6/7] w-20 {className}">
-  {@html svg}
+<div role="img" aria-label={label} class="aspect-square w-20 {className}">
+  {#if failed}
+    <div
+      class="flex h-full w-full items-center justify-center rounded-full bg-slate-200 text-2xl font-bold text-slate-600"
+    >
+      {label.trim().charAt(0).toUpperCase()}
+    </div>
+  {:else}
+    {#key src}
+      <img
+        {src}
+        alt=""
+        width="512"
+        height="512"
+        draggable="false"
+        data-variant={sena ? "sena" : "base"}
+        onerror={onError}
+        class="avatar h-full w-full select-none object-contain"
+      />
+    {/key}
+  {/if}
 </div>
+
+<style>
+  @media (prefers-reduced-motion: no-preference) {
+    .avatar {
+      animation: sena-in 0.12s ease-out;
+    }
+  }
+  @keyframes sena-in {
+    from {
+      opacity: 0.6;
+    }
+  }
+</style>

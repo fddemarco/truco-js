@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GameAction, GameView } from "$lib/api/client";
+import { avatarSrc, characterFor } from "$lib/avatar/avatar";
 import GameTable from "./GameTable.svelte";
 
 const action = (kind: GameAction["kind"], extra: Partial<GameAction> = {}): GameAction => ({
@@ -114,10 +115,10 @@ describe("GameTable", () => {
   it("sends a seña held on the keyboard in interactive mode", async () => {
     vi.useFakeTimers();
     const { onSena } = setup(makeView({ mode: "interactive" }));
-    await fireEvent.keyDown(window, { code: "Digit8", shiftKey: true });
+    await fireEvent.keyDown(window, { code: "Digit8" });
     vi.advanceTimersByTime(700);
-    await fireEvent.keyUp(window, { code: "Digit8", shiftKey: true });
-    expect(onSena).toHaveBeenCalledWith("sena_08", "muneca_izquierda", 700);
+    await fireEvent.keyUp(window, { code: "Digit8" });
+    expect(onSena).toHaveBeenCalledWith("sena_12", "nariz", 700);
   });
 
   it("ignores seña keys in strict mode", async () => {
@@ -144,15 +145,9 @@ describe("GameTable", () => {
       ],
     });
     setup(view);
-    const seat = screen.getByTestId("seat-3");
-    expect(seat.querySelector('[data-part="ojo-derecho"]')?.getAttribute("data-state")).toBe(
-      "cerrado",
-    );
-    expect(
-      screen
-        .getByTestId("seat-1")
-        .querySelector('[data-part="ojo-derecho"]')
-        ?.getAttribute("data-state"),
-    ).toBe("abierto");
+    const avatar = (seat: number) =>
+      screen.getByTestId(`seat-${seat}`).querySelector("img[data-variant]")?.getAttribute("src");
+    expect(avatar(3)).toBe(avatarSrc(characterFor(3), "sena_02"));
+    expect(avatar(1)).toBe(avatarSrc(characterFor(1)));
   });
 });

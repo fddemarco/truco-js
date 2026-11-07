@@ -1,59 +1,41 @@
 import { describe, expect, it } from "vitest";
-import { avatarSvg, LOOKS, SENAS, SPOTS } from "./avatar";
+import { avatarPortrait, avatarSrc, avatarVariants, characterFor, variantFor } from "./avatar";
 
-const look = LOOKS[0];
-
-function part(svg: string, name: string): Element {
-  const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
-  const el = doc.querySelector(`[data-part="${name}"]`);
-  if (!el) throw new Error(`no ${name}`);
-  return el;
-}
-
-describe("avatarSvg", () => {
-  it("shows a neutral face without a seña", () => {
-    const svg = avatarSvg({ look });
-    expect(svg).not.toContain('class="sena"');
-    expect(part(svg, "ojo-derecho").getAttribute("data-state")).toBe("abierto");
-    expect(part(svg, "boca").getAttribute("data-state")).toBe("sonrisa");
+describe("avatarSrc", () => {
+  it("shows the base image without a seña", () => {
+    expect(avatarSrc("tiburon")).toBe("/avatars/tiburon/base.webp");
   });
 
-  it("winks the signaller's right eye only", () => {
-    const svg = avatarSvg({ look, sena: "sena_02" });
-    expect(part(svg, "ojo-derecho").getAttribute("data-state")).toBe("cerrado");
-    expect(part(svg, "ojo-izquierdo").getAttribute("data-state")).toBe("abierto");
-  });
-
-  it("closes both eyes for no truco cards", () => {
-    const svg = avatarSvg({ look, sena: "sena_11" });
-    expect(part(svg, "ojo-derecho").getAttribute("data-state")).toBe("cerrado");
-    expect(part(svg, "ojo-izquierdo").getAttribute("data-state")).toBe("cerrado");
-  });
-
-  it("touches the chosen side with the other hand", () => {
-    const right = avatarSvg({ look, sena: "sena_08", spot: "muneca_derecha" });
-    expect(part(right, "mano-izquierda").getAttribute("data-touch")).toBe("muneca_derecha");
-    const left = avatarSvg({ look, sena: "sena_10", spot: "hombro_izquierdo" });
-    expect(part(left, "mano-derecha").getAttribute("data-touch")).toBe("hombro_izquierdo");
-  });
-
-  it("defaults to the gesture's first spot", () => {
-    const svg = avatarSvg({ look, sena: "sena_09" });
-    expect(part(svg, "mano-izquierda").getAttribute("data-touch")).toBe("codo_derecho");
+  it("uses one image per seña", () => {
+    expect(avatarSrc("roca", "sena_02")).toBe("/avatars/roca/sena_02.webp");
+    expect(avatarSrc("roca", "sena_02", "ojo_derecho")).toBe("/avatars/roca/sena_02.webp");
   });
 
   it("rejects a spot the gesture is not made on", () => {
-    expect(() => avatarSvg({ look, sena: "sena_01", spot: "nariz" })).toThrow(/sena_01/);
+    expect(() => variantFor("sena_01", "nariz")).toThrow(/sena_01/);
   });
+});
 
-  it("changes something visible for every seña at every spot", () => {
-    const neutral = avatarSvg({ look }).replace(/data-sena="[^"]*"/, "");
-    for (const sena of SENAS) {
-      for (const spot of SPOTS[sena]) {
-        const svg = avatarSvg({ look, sena, spot });
-        expect(svg).toContain('class="sena"');
-        expect(svg.replace(/data-sena="[^"]*"/, "")).not.toBe(neutral);
-      }
-    }
+describe("avatarPortrait", () => {
+  it("is not one of the table variants", () => {
+    expect(avatarPortrait("roca")).toBe("/avatars/roca/portrait.webp");
+    expect(avatarVariants("roca")).not.toContain(avatarPortrait("roca"));
+  });
+});
+
+describe("avatarVariants", () => {
+  it("lists the base and the eight señas", () => {
+    const srcs = avatarVariants("maniaca");
+    expect(srcs).toHaveLength(9);
+    expect(new Set(srcs).size).toBe(9);
+    expect(srcs).toContain(avatarSrc("maniaca", "sena_12"));
+  });
+});
+
+describe("characterFor", () => {
+  it("gives each of six seats its own character and wraps around", () => {
+    const six = [0, 1, 2, 3, 4, 5].map(characterFor);
+    expect(new Set(six).size).toBe(6);
+    expect(characterFor(6)).toBe(characterFor(0));
   });
 });

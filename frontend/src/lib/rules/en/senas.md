@@ -28,14 +28,10 @@
 | 05  | Any tres                                  | Gently bite the lower lip                |
 | 06  | Any dos                                   | Purse and push the lips forward (kiss)   |
 | 07  | Anchos falsos (as de copas or as de oros) | Open the mouth slightly                  |
-| 08  | Any sota (10)                             | Touch the wrist                          |
-| 09  | Any caballo (11)                          | Touch the elbow                          |
-| 10  | Any rey (12)                              | Touch the shoulder                       |
-| 11  | No good cards for the truco               | Close both eyes                          |
 | 12  | Good envido                               | Wrinkle the nose                         |
 
 ### C.3 Scope
 
-- Cards or situations not on the list (for example 7 de copas or de bastos, 4, 5 and 6) **have no authorized seña**.
+- Cards or situations not on the list (for example 7 de copas or de bastos, 4, 5, 6 and the figures: sota, caballo and rey) **have no authorized seña**. Nor is there a seña for having no good cards for the truco. Numbers 08, 09, 10 and 11 of the list are unused.
 - There is no seña for flor, since flor is not played.
 - In pica-pica, only the two players of the current duelo may make señas. A player not in the duelo may not use a seña to pass information to their teammate.

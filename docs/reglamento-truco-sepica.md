@@ -492,15 +492,11 @@ function puntosEnvido(
 | 05 | Cualquier tres | Morder suavemente el labio inferior |
 | 06 | Cualquier dos | Fruncir y proyectar los labios hacia adelante (beso) |
 | 07 | Anchos falsos (as de copas o as de oros) | Abrir ligeramente la boca |
-| 08 | Cualquier sota (10) | Tocarse la muñeca |
-| 09 | Cualquier caballo (11) | Tocarse el codo |
-| 10 | Cualquier rey (12) | Tocarse el hombro |
-| 11 | Sin cartas buenas para el truco | Cerrar ambos ojos |
 | 12 | Buen envido | Fruncir la nariz |
 
 ### C.3 Alcance
 
-- Las cartas o situaciones que no están en la lista (por ejemplo 7 de copas o de bastos, 4, 5 y 6) **no tienen seña autorizada**.
+- Las cartas o situaciones que no están en la lista (por ejemplo 7 de copas o de bastos, 4, 5, 6 y las figuras: sota, caballo y rey) **no tienen seña autorizada**. Tampoco hay seña para indicar que no se tienen cartas buenas para el truco. Los números 08, 09, 10 y 11 de la lista quedan sin uso.
 - No hay seña de flor, porque se juega sin flor.
 - En pica-pica, solo los dos jugadores del duelo en curso pueden hacer señas. Un jugador que no participa del duelo no puede usar una seña para pasarle información a su compañero.
 
@@ -518,4 +514,4 @@ function puntosEnvido(
 8. **Configuración por edición** (no está fija en este reglamento): composición de grupos y cuadro, cupos por fase, mejores segundos, acumulación de advertencias entre partidos y su reinicio entre la etapa clasificatoria y la televisada.
 9. **Error del original:** en 1.8 falta un verbo ("Las Condiciones Particulares de cada edición [establecerán] la composición…"). Está así también en la web.
 10. **Malas/buenas en el código:** un equipo está en malas con 0–15 puntos y en buenas con 16–30. La falta envido "define el partido" solo si **ambos** tienen ≤ 15.
-11. **Señas:** si el sistema lleva registro de incidencias, conviene guardar el catálogo C.2 como enum (`SENA_01`…`SENA_12`) para poder tipificar reclamos por señas no autorizadas (14.4, 19.3).
+11. **Señas:** si el sistema lleva registro de incidencias, conviene guardar el catálogo C.2 como enum (`SENA_01`…`SENA_07`, `SENA_12`) para poder tipificar reclamos por señas no autorizadas (14.4, 19.3).

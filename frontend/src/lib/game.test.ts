@@ -19,12 +19,12 @@ describe("seatPosition", () => {
 });
 
 describe("senaForCode", () => {
-  it("maps keys to señas and Shift to the left side", () => {
-    expect(senaForCode("Digit2", false)).toEqual({ sena: "sena_02", spot: "ojo_derecho" });
-    expect(senaForCode("Digit8", false)).toEqual({ sena: "sena_08", spot: "muneca_derecha" });
-    expect(senaForCode("Digit8", true)).toEqual({ sena: "sena_08", spot: "muneca_izquierda" });
-    expect(senaForCode("Digit2", true)?.spot).toBe("ojo_derecho"); // only one spot
-    expect(senaForCode("KeyA", false)).toBeNull();
+  it("maps 1–8 to the eight señas, skipping the unused 08–11", () => {
+    expect(senaForCode("Digit2")).toEqual({ sena: "sena_02", spot: "ojo_derecho" });
+    expect(senaForCode("Digit8")).toEqual({ sena: "sena_12", spot: "nariz" });
+    expect(senaForCode("Digit9")).toBeNull();
+    expect(senaForCode("Digit0")).toBeNull();
+    expect(senaForCode("KeyA")).toBeNull();
   });
 });
 

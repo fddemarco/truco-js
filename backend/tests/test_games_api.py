@@ -30,6 +30,21 @@ def view(client, game, token=None) -> dict:
     return client.get(f"/api/games/{game}", params=params).json()
 
 
+def my_turn(client, game, token) -> dict:
+    """The view once a mano waits on this seat.
+
+    Bots can settle a mano before the human acts (a rival bot may answer a bot's truco, 10.1),
+    so deal on until it is our turn, as a player at the table would.
+    """
+    v = view(client, game, token)
+    for _ in range(50):
+        if v["to_act"] == v["me"]:
+            return v
+        assert v["can_deal"], "bots should have played until it is our turn"
+        v = client.post(f"/api/games/{game}/deal", json={"token": token}).json()
+    raise AssertionError("never our turn")
+
+
 def pick(actions: list[dict]) -> dict:
     for kind in PRIORITY:
         for action in actions:
@@ -58,7 +73,7 @@ def play_until_the_end(client, game, token) -> dict:
 def test_one_human_against_bots_plays_a_full_partido(client):
     game = create(client, [{**HUMAN, "name": "Ana"}] + [BOT] * 5)
     token = join(client, game, 0)
-    v = view(client, game, token)
+    v = my_turn(client, game, token)
     assert v["started"] and v["me"] == 0
     assert len(v["my_cards"]) == 3
     assert v["seats"][0]["name"] == "Ana" and v["seats"][1]["name"] == "Prolijo"
@@ -108,8 +123,7 @@ def test_unknown_game_or_token(client):
 def test_illegal_move_is_rejected(client):
     game = create(client, [HUMAN] + [BOT] * 5)
     token = join(client, game, 0)
-    v = view(client, game, token)
-    assert v["to_act"] == 0  # bots never play past a human's turn
+    v = my_turn(client, game, token)  # bots never play past a human's turn
     mine = {(c["number"], c["suit"]) for c in v["my_cards"]}
     other = next(
         {"number": n, "suit": s}
@@ -169,8 +183,16 @@ def test_senas_only_in_interactive_mode(client):
 
     game = create(client, [HUMAN] + [BOT] * 5, mode="interactive")
     token = join(client, game, 0)
+    my_turn(client, game, token)  # señas need a mano in progress
     res = client.post(f"/api/games/{game}/sena", json={"token": token, **sena})
     assert res.status_code == 200, res.text
     assert res.json()["senas"][0]["seat"] == 0
     wrong = {**sena, "spot": "nariz"}
     assert client.post(f"/api/games/{game}/sena", json={"token": token, **wrong}).status_code == 400
+    # C.3: 08–10 (figures) and 11 (no truco cards) are not valid señas.
+    for gone in (
+        {"sena": "sena_08", "spot": "muneca_derecha"},
+        {"sena": "sena_11", "spot": "ojos"},
+    ):
+        res = client.post(f"/api/games/{game}/sena", json={"token": token, **sena, **gone})
+        assert res.status_code == 422

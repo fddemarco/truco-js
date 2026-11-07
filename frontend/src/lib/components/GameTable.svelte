@@ -89,12 +89,12 @@
   }
   function keydown(e: KeyboardEvent) {
     if (!onSena || view.mode !== "interactive" || e.repeat || typing(e.target)) return;
-    if (senaForCode(e.code, e.shiftKey)) held.set(e.code, Date.now());
+    if (senaForCode(e.code)) held.set(e.code, Date.now());
   }
   function keyup(e: KeyboardEvent) {
     const start = held.get(e.code);
     held.delete(e.code);
-    const sena = senaForCode(e.code, e.shiftKey);
+    const sena = senaForCode(e.code);
     if (start === undefined || !sena || !onSena) return;
     onSena(sena.sena, sena.spot, Math.min(5000, Math.max(150, Date.now() - start)));
   }
@@ -148,7 +148,7 @@
               : ''} {seat.in_play && !seat.active ? 'opacity-40' : ''}"
           >
             <Avatar
-              look={seat.seat}
+              character={seat.seat}
               label={seat.name}
               sena={sena?.sena}
               spot={sena?.spot}

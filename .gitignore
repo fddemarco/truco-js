@@ -25,3 +25,6 @@ coverage/
 
 # Claude Code personal settings
 .claude/settings.local.json
+
+# Source art from the image model (imported into frontend/static/ with `pnpm import-art`)
+/assets/

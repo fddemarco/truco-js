@@ -30,11 +30,11 @@ test-web:
 	cd frontend && pnpm test
 
 lint: ## Lint + typecheck everything
-	cd backend && uv run ruff check . && uv run ruff format --check .
+	cd backend && uv run ruff check . ../tools && uv run ruff format --check . ../tools
 	cd frontend && pnpm lint
 
 fmt: ## Format everything
-	cd backend && uv run ruff check --fix . && uv run ruff format .
+	cd backend && uv run ruff check --fix . ../tools && uv run ruff format . ../tools
 	cd frontend && pnpm format
 
 gen-api: ## Regenerate the typed frontend API client from FastAPI's OpenAPI schema

@@ -60,7 +60,7 @@ def test_sena_records_the_ronda():
     for _ in range(6):
         h.apply(Action.play(h.hands[h.to_act][0]))
     assert h.to_act == 0  # the 1 de espadas won the first ronda
-    h.apply(Action.signal(Sena.SIN_CARTAS_DE_TRUCO))
+    h.apply(Action.signal(Sena.TRES))
     assert h.senas_seen(2)[0].ronda == 1
 
 
@@ -74,3 +74,11 @@ def test_in_a_duelo_only_the_rival_can_see_it():
     duel.apply(Action.signal(Sena.BUEN_ENVIDO))
     assert len(duel.senas_seen(3)) == 1
     assert duel.senas_seen(2) == []  # not in this duelo
+
+
+def test_only_the_official_senas_are_offered():
+    # C.2/C.3: no seña for figures (08–10) nor for having no truco cards (11).
+    h = redonda(1, 0)
+    offered = {a.sena for a in h.legal_actions() if a.kind == K.SENA}
+    assert offered == set(Sena)
+    assert {s.value for s in offered} == {f"sena_{n:02}" for n in (1, 2, 3, 4, 5, 6, 7, 12)}

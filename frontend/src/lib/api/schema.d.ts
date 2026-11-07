@@ -233,19 +233,12 @@ export interface components {
     BodySpot:
       | "cejas"
       | "ojo_derecho"
-      | "ojos"
       | "comisura_derecha"
       | "comisura_izquierda"
       | "labio_inferior"
       | "labios"
       | "boca"
-      | "nariz"
-      | "muneca_derecha"
-      | "muneca_izquierda"
-      | "codo_derecho"
-      | "codo_izquierdo"
-      | "hombro_derecho"
-      | "hombro_izquierdo";
+      | "nariz";
     /** BotConfigCreate */
     BotConfigCreate: {
       /** Name */
@@ -646,18 +639,7 @@ export interface components {
      * @enum {string}
      */
     Sena:
-      | "sena_01"
-      | "sena_02"
-      | "sena_03"
-      | "sena_04"
-      | "sena_05"
-      | "sena_06"
-      | "sena_07"
-      | "sena_08"
-      | "sena_09"
-      | "sena_10"
-      | "sena_11"
-      | "sena_12";
+      "sena_01" | "sena_02" | "sena_03" | "sena_04" | "sena_05" | "sena_06" | "sena_07" | "sena_12";
     /** SenaRequest */
     SenaRequest: {
       /** Token */
