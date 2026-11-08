@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img">
+<title>envido_king</title>
+<defs><linearGradient id="rim" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fde68a"/><stop offset="0.5" stop-color="#f59e0b"/><stop offset="1" stop-color="#92400e"/></linearGradient>
+<radialGradient id="wood" cx="0.4" cy="0.35" r="0.7"><stop offset="0" stop-color="#5b3418"/><stop offset="1" stop-color="#24140a"/></radialGradient></defs>
+<circle cx="32" cy="32" r="30" fill="url(#rim)"/>
+<circle cx="32" cy="32" r="26" fill="url(#wood)" stroke="#1c1006" stroke-width="1"/>
+<path d="M16 42 l-2 -20 9 8 9 -13 9 13 9 -8 -2 20 z" fill="#fcd34d" stroke="#92400e" stroke-width="1.5" stroke-linejoin="round"/>
+<rect x="16" y="42" width="32" height="5" rx="1.5" fill="#f59e0b" stroke="#92400e" stroke-width="1.2"/>
+<circle cx="32" cy="34" r="2.6" fill="#b3261e"/><circle cx="23" cy="36" r="1.8" fill="#1f4e8c"/><circle cx="41" cy="36" r="1.8" fill="#2e6b30"/>
+</svg>

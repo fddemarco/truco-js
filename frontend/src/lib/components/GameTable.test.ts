@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GameAction, GameView } from "$lib/api/client";
+import type { Beat } from "$lib/animation";
 import { avatarSrc, CHARACTERS, characterFor } from "$lib/avatar/avatar";
 import { updateProfile } from "$lib/profile.svelte";
 import GameTable from "./GameTable.svelte";
@@ -17,6 +18,7 @@ function makeView(overrides: Partial<GameView> = {}): GameView {
   return {
     id: "g",
     mode: "strict",
+    format: "reglamento",
     version: 1,
     server_ms: Date.now(),
     started: true,
@@ -284,6 +286,73 @@ describe("GameTable", () => {
     );
   });
 
+  it("says each envido number over its player, 0.3 s apart, the best so far in gold", async () => {
+    vi.useFakeTimers();
+    const view = makeView({
+      phase: "playing",
+      envido: {
+        calls: ["envido"],
+        accepted: true,
+        team: 1,
+        points: 2,
+        winner_seat: 3,
+        tantos: { 0: 25, 1: null, 2: null, 3: 30 },
+      },
+    });
+    const beat = { id: 9, seat: 3, kind: "envido_resuelto", ms: 2800, think: 0 } as Beat;
+    const { rerender } = render(GameTable, { view, viewer: 0, busy: true, beat, onAct: vi.fn() });
+    const said = (seat: number) => screen.queryByTestId(`envido-said-${seat}`);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(said(0)?.textContent).toContain("25");
+    expect(said(0)?.dataset.best).toBe("true");
+    expect(said(1)).toBeNull(); // not yet
+    await vi.advanceTimersByTimeAsync(300);
+    expect(said(1)?.textContent).toContain("Son buenas");
+    expect(said(1)?.dataset.best).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(600);
+    // 30 beats 25: the gold moves to it
+    expect(said(3)?.textContent).toContain("30");
+    expect(said(3)?.dataset.best).toBe("true");
+    expect(said(0)?.dataset.best).toBeUndefined();
+    expect(said(0)).not.toBeNull(); // the others stay up until the envido is over
+    // no passing words as well
+    expect(screen.queryAllByText("30")).toHaveLength(1);
+    await rerender({ view, viewer: 0, busy: false, beat: null, onAct: vi.fn() });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(said(0)).toBeNull();
+    expect(said(3)).toBeNull();
+  });
+
+  it("keeps the declarations up while the envido is being declared", async () => {
+    vi.useFakeTimers();
+    setup(makeView({ phase: "declaring", declarations: { 0: 27, 1: 29 }, to_act: 2 }));
+    await vi.advanceTimersByTimeAsync(300);
+    expect(screen.getByTestId("envido-said-0").textContent).toContain("27");
+    expect(screen.getByTestId("envido-said-1").dataset.best).toBe("true");
+  });
+
+  it("seats one against one face to face, with nobody to turn to", () => {
+    const full = makeView();
+    setup(
+      makeView({
+        format: "pica_pica",
+        seats: full.seats.slice(0, 2),
+        mode: "interactive",
+        mano: 0,
+        dealer: 1,
+        pie: 1,
+        pies: [0, 1],
+      }),
+    );
+    expect(screen.getByTestId("seat-0")).toBeTruthy();
+    expect(screen.getByTestId("seat-1")).toBeTruthy();
+    expect(screen.queryByTestId("seat-2")).toBeNull();
+    expect(screen.getByTestId("scene").querySelector('[data-focus="1"]')).toBeTruthy();
+    for (const name of ["Mirar a la izquierda", "Mirar a la derecha"]) {
+      expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(true);
+    }
+  });
+
   it("sweeps the last mano's cards back to the mazo as a new mano is dealt", () => {
     setup(makeView(), {
       busy: true,
@@ -457,14 +526,13 @@ describe("GameTable, more", () => {
     expect(screen.getByTestId("stack-2").querySelector("[data-lead]")).toBeNull();
   });
 
-  it("marks mano and a pie per team, the viewer's lighter, and the viewer's team", () => {
+  it("marks mano and a pie per team, the viewer's lighter", () => {
     setup(makeView({ mano: 0, pie: 5, pies: [4, 5] }));
     expect(within(screen.getByTestId("badge-0")).getByTestId("role-mano")).toBeTruthy();
     const pie = (seat: number) =>
       within(screen.getByTestId(`badge-${seat}`)).getByTestId("role-pie");
     expect(pie(4).dataset.own).toBe("true"); // the viewer (seat 0) is on team 0
     expect(pie(5).dataset.own).toBe("false");
-    expect(screen.getByText("Tu equipo")).toBeTruthy();
   });
 
   it("plays and sings from the keyboard", async () => {

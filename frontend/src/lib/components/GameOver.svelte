@@ -1,18 +1,18 @@
 <script lang="ts">
   import type { GameView } from "$lib/api/client";
+  import { avatarSrc, characterFor } from "$lib/avatar/avatar";
   import { CARD_BACK, cardName, suitSrc, type Suit } from "$lib/cards";
   import { isMessageKey, t } from "$lib/i18n.svelte";
+  import PlayingCard from "./PlayingCard.svelte";
 
   interface Props {
     view: GameView;
     /** The viewer's team; null for a spectator, who gets no win or loss. */
     myTeam: number | null;
     nameOf: (seat: number) => string;
-    /** Back to the table, to look at the last mano. */
-    onClose: () => void;
   }
 
-  let { view, myTeam, nameOf, onClose }: Props = $props();
+  let { view, myTeam, nameOf }: Props = $props();
 
   const winner = $derived(view.result?.winner ?? null);
   const outcome = $derived(
@@ -28,21 +28,37 @@
           : t("game.noWinner"),
   );
 
-  // The fun facts, in words. Unknown keys (a newer server) are left out.
+  // The fun facts as medallions: a short title, who, and the number or the cards. The full
+  // sentence is a tooltip. Unknown keys (a newer server) are left out.
   const facts = $derived(
     view.stats.flatMap((f) => {
       const key = `stat.${f.key}`;
-      if (!isMessageKey(key)) return [];
+      const title = `statTitle.${f.key}`;
+      if (!isMessageKey(key) || !isMessageKey(title)) return [];
+      const seat = f.seat ?? null;
       return [
-        t(key, {
-          name: f.seat != null ? nameOf(f.seat) : "",
-          value: f.value ?? "",
-          mano: f.mano ?? "",
-          cards: f.cards.map((c) => cardName(c.number, c.suit as Suit)).join(", "),
-        }),
+        {
+          key: f.key,
+          title: t(title),
+          seat,
+          value: f.value,
+          cards: f.key === "strongest_hand" ? f.cards : [],
+          text: t(key, {
+            name: seat !== null ? nameOf(seat) : "",
+            value: f.value ?? "",
+            mano: f.mano ?? "",
+            cards: f.cards.map((c) => cardName(c.number, c.suit as Suit)).join(", "),
+          }),
+        },
       ];
     }),
   );
+  const manos = $derived(facts.find((f) => f.key === "manos") ?? null);
+  const awards = $derived(facts.filter((f) => f.key !== "manos" && f.seat !== null));
+
+  function character(seat: number) {
+    return view.seats?.[seat]?.character ?? characterFor(seat);
+  }
 
   // Win: the four suits rain down in gold. Lose: face-down cards drift down and fade.
   const SUITS: Suit[] = ["espada", "basto", "oro", "copa"];
@@ -91,6 +107,16 @@
         <span class="text-amber-100/50">–</span>
         <span class="text-rose-200">{view.score[1]} {view.team_names[1]}</span>
       </p>
+      {#if manos}
+        <p
+          class="mt-1 inline-flex items-center gap-1.5 rounded-full bg-black/25 py-0.5 pr-3 pl-0.5 text-sm font-semibold text-amber-100/90"
+          title={manos.text}
+          data-testid="manos"
+        >
+          <img src="/ui/stats/manos.svg" alt="" class="h-6 w-6" />
+          {t("end.manos", { n: manos.value ?? 0 })}
+        </p>
+      {/if}
     </div>
 
     <nav class="flex flex-wrap justify-center gap-2">
@@ -104,24 +130,56 @@
         class="rounded-xl bg-white/15 px-5 py-2 font-bold hover:bg-white/25"
         onclick={leave}>{t("end.home")}</a
       >
-      <button
-        type="button"
-        class="rounded-xl bg-white/15 px-5 py-2 font-bold hover:bg-white/25"
-        onclick={onClose}>{t("end.table")}</button
-      >
     </nav>
 
-    {#if facts.length}
-      <section>
-        <h3 class="mb-1.5 text-sm font-semibold tracking-wide text-amber-200 uppercase">
-          {t("end.facts")}
-        </h3>
-        <ul class="space-y-1 text-sm leading-snug" data-testid="facts">
-          {#each facts as fact, i (i)}
-            <li class="fact" style="--i: {i}">{fact}</li>
-          {/each}
-        </ul>
-      </section>
+    {#if awards.length}
+      <ul
+        class="grid grid-cols-2 gap-2.5 sm:grid-cols-3"
+        aria-label={t("end.facts")}
+        data-testid="facts"
+      >
+        {#each awards as f, i (f.key)}
+          <!-- focusable so the keyboard reaches the sentence in its tooltip -->
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+          <li
+            class="fact group relative flex flex-col items-center gap-1 rounded-2xl bg-black/25 px-2 pt-3 pb-2 text-center ring-1 ring-amber-200/15 outline-none hover:bg-black/35 hover:ring-amber-300/50 focus-visible:ring-2 focus-visible:ring-amber-300"
+            style="--i: {i}"
+            tabindex="0"
+            aria-describedby="fact-{f.key}"
+            data-testid="fact-{f.key}"
+          >
+            <div class="relative">
+              <img src="/ui/stats/{f.key}.svg" alt="" class="medal h-14 w-14" />
+              <img
+                src={avatarSrc(character(f.seat!))}
+                alt=""
+                class="absolute -right-3 -bottom-1 h-8 w-8 rounded-full bg-amber-950 object-cover ring-2 ring-amber-300"
+              />
+            </div>
+            <span class="text-[0.65rem] font-bold tracking-wider text-amber-200/80 uppercase"
+              >{f.title}</span
+            >
+            <span class="max-w-full truncate text-sm font-semibold">{nameOf(f.seat!)}</span>
+            {#if f.cards.length}
+              <span class="flex gap-0.5" aria-hidden="true">
+                {#each f.cards as c (`${c.number}-${c.suit}`)}
+                  <PlayingCard number={c.number} suit={c.suit as Suit} class="w-6" />
+                {/each}
+              </span>
+            {:else if f.value != null}
+              <span class="font-mono text-2xl leading-none font-black text-amber-300"
+                >{f.value}</span
+              >
+            {/if}
+            <span
+              id="fact-{f.key}"
+              role="tooltip"
+              class="tip pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 w-52 -translate-x-1/2 rounded-lg bg-slate-950/95 px-3 py-2 text-xs leading-snug font-medium text-amber-50 opacity-0 shadow-xl ring-1 ring-amber-200/30 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+              >{f.text}</span
+            >
+          </li>
+        {/each}
+      </ul>
     {/if}
   </div>
 </div>
@@ -171,6 +229,14 @@
   }
   .fact {
     animation: rise 0.4s ease-out calc(0.8s + var(--i) * 120ms) both;
+  }
+  .medal {
+    filter: drop-shadow(0 3px 6px rgb(0 0 0 / 0.5));
+    transition: transform 0.2s ease-out;
+  }
+  .fact:hover .medal,
+  .fact:focus-visible .medal {
+    transform: scale(1.08) rotate(-4deg);
   }
   @keyframes veil {
     from {

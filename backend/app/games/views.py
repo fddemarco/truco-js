@@ -23,7 +23,7 @@ from app.games.stats import facts
 from app.truco.cards import Card, Suit
 from app.truco.envido import tanto
 from app.truco.hand import Action, Contest
-from app.truco.table import SEATS, across, number_of, seats_across, team_of
+from app.truco.table import across, number_of, seats_across, team_of
 
 if TYPE_CHECKING:
     from app.games.session import GameSession, Step
@@ -56,10 +56,11 @@ def build_view(game: "GameSession", me: int | None, look: int | None, now: int) 
     m = game.match
     hand = m.hand
     contest = game.contest()
-    seats = [seat_view(game, i, contest, now) for i in range(SEATS)]
+    seats = [seat_view(game, i, contest, now) for i in range(len(game.seats))]
     view = GameView(
         id=game.id,
         mode=game.config.mode,
+        format=game.config.format,
         version=game.version,
         server_ms=now,
         started=game.started,
@@ -94,7 +95,10 @@ def build_view(game: "GameSession", me: int | None, look: int | None, now: int) 
             for f in facts(game.stats_log)
         ]
     if me is not None:
-        focus = look if look is not None and look in seats_across(me) else across(me)
+        if len(game.seats) == 2:
+            focus = 1 - me  # one against one: the rival is across
+        else:
+            focus = look if look is not None and look in seats_across(me) else across(me)
         view.senas = [s for s in view.senas if s.seat in (me, focus)]
         view.my_cards = [card_model(c) for c in game.cards_of(me)]
         if game.started:

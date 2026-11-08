@@ -34,7 +34,7 @@ from app.truco.hand import Action, ActionKind, Contest, IllegalAction, PicaPicaH
 from app.truco.match import Match, MatchError, MatchResult
 from app.truco.rounds import round_winner
 from app.truco.signals import BodySpot, Sena, SenaEvent
-from app.truco.table import SEATS, team_of
+from app.truco.table import left_of, team_of
 
 log = structlog.get_logger("game")
 
@@ -110,8 +110,8 @@ class GameSession:
         rng: random.Random | None = None,
         team_names: tuple[str, str] | None = None,
     ) -> None:
-        if len(seats) != SEATS:
-            raise GameError("a partido needs six seats")
+        if len(seats) != config.players:
+            raise GameError(f"this partido needs {config.players} seats")
         if all(s.kind == "bot" for s in seats):
             raise GameError("at least one seat must be human")
         if any(s.kind == "bot" and s.bot is None for s in seats):
@@ -157,6 +157,8 @@ class GameSession:
     def join(self, seat: int, name: str = "", character: Character | None = None) -> str:
         """Take an open human seat; `character` is kept if no other seat has it."""
         with self.lock:
+            if seat >= len(self.seats):  # a one-against-one table has two seats
+                raise Conflict(f"seat {seat} is not open")
             target = self.seats[seat]
             if target.kind != "human" or target.joined:
                 raise Conflict(f"seat {seat} is not open")
@@ -249,6 +251,8 @@ class GameSession:
         with self.lock:
             if not secrets.compare_digest(self.host_token, host_token):
                 raise Forbidden("unknown host token")
+            if seat >= len(self.seats):
+                raise Conflict(f"seat {seat} is not taken")
             target = self.seats[seat]
             if target.kind != "human" or target.token is None:
                 raise Conflict(f"seat {seat} is not taken")
@@ -288,7 +292,7 @@ class GameSession:
     def cutter(self) -> int:
         """Who cuts the next deal: the player to the dealer's left (the dealer deals to the
         right, 5.5)."""
-        return (self.match.dealer + SEATS - 1) % SEATS
+        return left_of(self.match.dealer, len(self.seats))
 
     def _table_hand(self) -> Contest | PicaPicaHand | None:
         """The mano in progress, or the last one, kept on the table until the next deal."""

@@ -136,7 +136,7 @@ def new_game(body: GameCreate, session: Session = Depends(get_session)) -> GameC
             seats.append(Seat("human", name, character))
     names = (body.team_names[0], body.team_names[1]) if body.team_names else None
     try:
-        config = GameConfig(mode=body.mode, scoring=_scoring(body.scoring))
+        config = GameConfig(mode=body.mode, format=body.format, scoring=_scoring(body.scoring))
         game = registry.create_game(config, seats, names)
     except registry.Full as e:
         raise HTTPException(503, str(e)) from e

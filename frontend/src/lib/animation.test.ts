@@ -1,6 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GameEvent, GameView, StepView } from "$lib/api/client";
-import { ACT_MS, BANNER_MS, BeatQueue, HUMAN_MS, isNewer, stepBeats, type Beat } from "./animation";
+import {
+  ACT_MS,
+  BANNER_MS,
+  BeatQueue,
+  ENVIDO_STAGGER_MS,
+  HUMAN_MS,
+  isNewer,
+  stepBeats,
+  type Beat,
+} from "./animation";
 
 const ev = (kind: string, extra: Partial<GameEvent> = {}): GameEvent => ({
   seat: 1,
@@ -23,6 +32,20 @@ function step(events: GameEvent[], version = ++index): StepView {
 const beats = (events: GameEvent[], bots?: Set<number>) => stepBeats([step(events)], bots);
 
 describe("stepBeats", () => {
+  it("gives a strict envido result time to say every number, one after another", () => {
+    const view = (mode: string) =>
+      ({
+        version: ++index,
+        mode,
+        envido: { tantos: { 0: 25, 1: 28, 3: null } },
+      }) as unknown as GameView;
+    const resolved = (mode: string) =>
+      stepBeats([{ index, seat: null, events: [ev("envido_resuelto")], view: view(mode) }])[0];
+    expect(resolved("strict").ms).toBe(BANNER_MS + 3 * ENVIDO_STAGGER_MS);
+    // interactive: each number was its own beat already
+    expect(resolved("interactive").ms).toBe(BANNER_MS);
+  });
+
   it("makes a beat per card or canto and skips bookkeeping", () => {
     const out = beats([
       ev("jugar", { card: { number: 1, suit: "espada" } }),

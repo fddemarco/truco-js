@@ -579,3 +579,52 @@ def test_a_poll_after_the_wait_deals(client, monkeypatch):
     dealt = view(client, game, token)
     assert dealt["deal_at"] is None or dealt["hand_number"] >= 1
     assert any(e["kind"] == "reparto" for e in dealt["events"])
+
+
+def create_format(client, fmt, seats, mode="strict"):
+    return client.post("/api/games", json={"mode": mode, "format": fmt, "seats": seats})
+
+
+def test_pica_pica_partido_one_against_one_in_both_modes(client):
+    for mode in ("strict", "interactive"):
+        res = create_format(client, "pica_pica", [HUMAN, BOT], mode)
+        assert res.status_code == 201, res.text
+        game = res.json()["id"]
+        token = join(client, game, 0)
+        v = my_turn(client, game, token)
+        assert v["format"] == "pica_pica" and len(v["seats"]) == 2
+        assert v["cutter"] is None or v["cutter"] in (0, 1)
+        kinds = {a["kind"] for a in v["actions"]}
+        assert "nos_vamos_al_mazo" not in kinds and "sena" not in kinds
+        end = play_until_the_end(client, game, token)
+        assert max(end["score"]) == 30
+        assert {e["hand_kind"] for e in end["events"] if e["kind"] == "reparto"} == {"pica_pica"}
+
+
+def test_a_format_needs_its_number_of_seats(client):
+    assert create_format(client, "pica_pica", [HUMAN] + [BOT] * 5).status_code == 422
+    assert create_format(client, "reglamento", [HUMAN, BOT]).status_code == 422
+    assert create_format(client, "redonda", [HUMAN, BOT]).status_code == 422
+    game = create_format(client, "pica_pica", [HUMAN, HUMAN]).json()["id"]
+    # a one-against-one table has no seat 2
+    res = client.post(f"/api/games/{game}/join", json={"seat": 4})
+    assert res.status_code == 409
+
+
+def test_one_against_one_has_no_senas(client):
+    game = create_format(client, "pica_pica", [HUMAN, BOT], "interactive").json()["id"]
+    token = join(client, game, 0)
+    my_turn(client, game, token)
+    sena = {"sena": "sena_05", "spot": "labio_inferior", "duration_ms": 500}
+    assert post(client, game, "sena", token, sena).status_code == 400
+
+
+def test_redonda_partido_never_deals_pica_pica(client):
+    for mode in ("strict", "interactive"):
+        res = create_format(client, "redonda", [HUMAN] + [BOT] * 5, mode)
+        game = res.json()["id"]
+        token = join(client, game, 0)
+        end = play_until_the_end(client, game, token)
+        assert end["format"] == "redonda" and max(end["score"]) == 30
+        dealt = {e["hand_kind"] for e in end["events"] if e["kind"] == "reparto"}
+        assert dealt == {"redonda"}

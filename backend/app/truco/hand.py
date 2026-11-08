@@ -487,11 +487,11 @@ class Contest:
         moves = [Action(ActionKind.MAZO)]
         if self.config.interactive:
             moves.append(Action(ActionKind.TAPAR))
-        if not self.pica_pica:
+        if not self.pica_pica and self.config.partners:
             moves.append(Action(ActionKind.NOS_VAMOS))
         if self.config.interactive and seat not in self.shown:
             moves.append(Action(ActionKind.MOSTRAR))
-        if not self.config.interactive and not self._signalled:
+        if not self.config.interactive and not self._signalled and self.config.partners:
             moves += [Action.signal(s) for s in Sena]  # strict: once per turn
         return moves
 

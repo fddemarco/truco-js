@@ -19,6 +19,7 @@ UI ──/api (vite proxy | Vercel rewrite)──▶ FastAPI ──▶ SQLite da
 - **The API is stateless** so it runs as Vercel serverless functions: no game is kept in memory, nothing runs between requests (the table deals when a poll finds its wait over), and clients poll. Don't add background threads, in-process caches of game state, streams or local-disk state. See `backend/CLAUDE.md`.
 
 - **Two rule modes**, chosen when a tournament or one-off game starts: strict (restricted moves, for the RL bot) and interactive (simulated real table for multiplayer, engine as referee). See `backend/CLAUDE.md`.
+- **Three formats**, also chosen at the start and played in either mode: reglamento (3 v 3, redondas and pica-pica), redonda (3 v 3, no pica-pica) and pica-pica (1 v 1, two seats, no señas).
 - **The rules are the spec.** `docs/reglamento-truco-sepica.md` is the official Se Pica TSA reglamento (Spanish). Engine code cites rule numbers (e.g. `(15.1)`). Check the rule before changing behaviour.
 - `backend/app/truco/` has no web or DB dependencies, so the API and the future RL bot share it. See `backend/CLAUDE.md`.
 - The UI shows the reglamento in Spanish and English (`frontend/src/lib/rules/`). Game terms (mano, ronda, envido, truco, pica-pica, parda, quiero, irse al mazo, malas/buenas, señas...) stay in Spanish in every language, in UI copy too.

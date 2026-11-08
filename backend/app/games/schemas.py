@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from app.games.characters import Character
-from app.truco.config import RuleMode
+from app.truco.config import Format, RuleMode
 from app.truco.hand import ActionKind, Phase
 from app.truco.scoring import DEFAULT_TARGET, MAX_CHAIN_POINTS, MAX_TARGET, MIN_TARGET
 from app.truco.signals import BodySpot, Sena
@@ -59,8 +59,10 @@ class ScoringInfo(BaseModel):
 
 class GameCreate(BaseModel):
     mode: RuleMode = RuleMode.STRICT
+    # reglamento: 3 v 3, redondas and pica-pica; redonda: 3 v 3, no pica-pica; pica_pica: 1 v 1
+    format: Format = Format.REGLAMENTO
     scoring: ScoringSetup | None = None  # default: the reglamento
-    seats: list[SeatSetup] = Field(min_length=6, max_length=6)
+    seats: list[SeatSetup] = Field(min_length=2, max_length=6)  # 6, or 2 for pica_pica
     # Team 0, team 1. Default: drawn from a list.
     team_names: list[TeamName] | None = Field(None, min_length=2, max_length=2)
 
@@ -213,6 +215,7 @@ class GameView(BaseModel):
 
     id: str
     mode: RuleMode
+    format: Format = Format.REGLAMENTO
     version: int
     server_ms: int
     started: bool

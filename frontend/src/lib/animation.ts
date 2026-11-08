@@ -13,6 +13,8 @@ export const ACT_MS = 650;
 export const HUMAN_MS = 700;
 /** Announcements (ronda won, envido result, end of the mano, new deal) stay long enough to read. */
 export const BANNER_MS = 1600;
+/** Between two numbers said in the envido, as each bubble comes up. */
+export const ENVIDO_STAGGER_MS = 300;
 /** A new deal: the last mano's cards go back to the mazo (SWEEP_MS), then out to everyone. */
 export const SWEEP_MS = 900;
 const DEAL_MS = SWEEP_MS + 1500;
@@ -112,8 +114,12 @@ function beats(events: GameEvent[], view: GameView, bots: Set<number>): Beat[] {
       const seat = e.seat ?? null;
       const banner = BANNERS.has(e.kind);
       const think = !banner && seat !== null && bots.has(seat) ? thinkFor(id) : 0;
-      const ms =
+      let ms =
         e.kind === "reparto" ? DEAL_MS : banner ? BANNER_MS : think ? think + ACT_MS : HUMAN_MS;
+      // Strict mode says every number with the result: one after another, then the winner.
+      if (e.kind === "envido_resuelto" && view.mode === "strict") {
+        ms += ENVIDO_STAGGER_MS * Object.keys(view.envido?.tantos ?? {}).length;
+      }
       return {
         id,
         seat,

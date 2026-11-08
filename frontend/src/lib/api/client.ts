@@ -76,6 +76,7 @@ export type StepView = Schemas["StepView"];
 export type SenaView = Schemas["SenaView"];
 export type CardModel = Schemas["CardModel"];
 export type RuleMode = Schemas["RuleMode"];
+export type Format = Schemas["Format"];
 export type ScoringInfo = Schemas["ScoringInfo"];
 export type ChainInfo = Schemas["ChainInfo"];
 export type ChainSetup = Schemas["ChainSetup"];

@@ -36,13 +36,26 @@ export const ACTION_LABELS: Record<ActionKind, string> = {
 
 export const tableSide = (seat: number): number => Math.floor(seat / 3);
 
-/** The seat directly across the table. */
-export const across = (seat: number): number => 5 - seat;
+/** The seat directly across the table (one against one: the rival). */
+export const across = (seat: number, players = 6): number => (players === 2 ? 1 - seat : 5 - seat);
 
 /** The three seats on the other side, from the viewer's left to their right. */
 export function seatsAcross(viewer: number): number[] {
   const first = 3 * tableSide(viewer);
-  return [first, first + 1, first + 2].map(across);
+  return [first, first + 1, first + 2].map((s) => across(s));
+}
+
+/**
+ * The table's three columns, from the viewer's left to their right: the players across
+ * (`far`) and on the viewer's side (`near`). One against one (a pica-pica partido), the two
+ * sit face to face in the middle column; the others are empty (null).
+ */
+export function tableColumns(
+  viewer: number,
+  players = 6,
+): { far: (number | null)[]; near: (number | null)[] } {
+  if (players === 2) return { far: [null, 1 - viewer, null], near: [null, viewer, null] };
+  return { far: seatsAcross(viewer), near: [0, 1, 2].map((i) => 3 * tableSide(viewer) + i) };
 }
 
 /**
@@ -171,6 +184,74 @@ export function pendingCanto(view: GameView): { label: string; chanter: number }
       ? (ACTION_LABELS[view.envido_calls.at(-1) as ActionKind] ?? "Envido")
       : (TRUCO_LEVELS[view.truco_level] ?? "Truco");
   return { label, chanter: p.chanter };
+}
+
+/** A number said in the envido (null: "son buenas"). */
+export interface EnvidoSaid {
+  seat: number;
+  number: number | null;
+}
+
+/** The envido's players in turn, from mano (11.4): the duelo's two in pica-pica. */
+function envidoTurns(view: GameView): number[] {
+  const mano = view.mano ?? 0;
+  const n = view.seats.length;
+  const fromMano = (seat: number) => (seat - mano + n) % n;
+  const seats = view.duel ?? view.seats.map((s) => s.seat);
+  return [...seats].sort((a, b) => fromMano(a) - fromMano(b));
+}
+
+/** Whether `a` beats the best number said so far; a tie goes to whoever is closer to mano (11.6). */
+function beatsSaid(a: EnvidoSaid, best: EnvidoSaid | null, turns: number[]): boolean {
+  if (a.number === null) return false;
+  if (best === null || best.number === null) return true;
+  if (a.number !== best.number) return a.number > best.number;
+  return turns.indexOf(a.seat) < turns.indexOf(best.seat);
+}
+
+/**
+ * The numbers said in the envido, in the order they were said (11.4–11.6): turns from mano,
+ * and a player whose team holds the best number waits until it no longer does. A JSON object
+ * loses that order, so it is replayed here, as the engine does (`said_in_order`, `Declaration`).
+ */
+export function envidoOrder(said: Record<string, number | null>, turns: number[]): EnvidoSaid[] {
+  const pending = turns.filter((s) => s in said).map((seat) => ({ seat, number: said[seat] }));
+  const out: EnvidoSaid[] = [];
+  let best: EnvidoSaid | null = null;
+  let spoke = true;
+  while (spoke && out.length < pending.length) {
+    spoke = false;
+    for (const s of pending) {
+      if (out.includes(s) || (best !== null && s.seat % 2 === best.seat % 2)) continue;
+      out.push(s);
+      spoke = true;
+      if (beatsSaid(s, best, turns)) best = s;
+    }
+  }
+  return [...out, ...pending.filter((s) => !out.includes(s))];
+}
+
+/**
+ * What each player has said in the envido being played, in order, while it lasts: during
+ * the declarations (interactive), and on the beats of the last declarations and the result
+ * (strict mode says them all at once, with the result). Empty once the envido is over.
+ */
+export function envidoSaid(view: GameView, beatKind: string | null = null): EnvidoSaid[] {
+  const turns = envidoTurns(view);
+  if (view.phase === "declaring") return envidoOrder(view.declarations, turns);
+  const showing = beatKind === "declarar" || beatKind === "son_buenas";
+  if ((showing || beatKind === "envido_resuelto") && view.envido?.accepted) {
+    return envidoOrder(view.envido.tantos, turns);
+  }
+  return [];
+}
+
+/** The seat with the best envido among those said so far, if anyone has said a number. */
+export function bestSaid(said: EnvidoSaid[], view: GameView): number | null {
+  const turns = envidoTurns(view);
+  let best: EnvidoSaid | null = null;
+  for (const s of said) if (beatsSaid(s, best, turns)) best = s;
+  return best?.seat ?? null;
 }
 
 export type PromptTone = "go" | "answer" | "wait" | "done";

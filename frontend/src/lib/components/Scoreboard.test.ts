@@ -30,11 +30,9 @@ describe("Scoreboard", () => {
     // 13 = two full squares (four sides and the diagonal) and three strokes, same for both teams
     expect(pumas.querySelectorAll("path.stroke")).toHaveLength(13);
     expect(screen.getByTestId("score-0").textContent).toBe("13");
-    expect(within(pumas).getByText("Tu equipo")).toBeTruthy();
     expect(within(pumas).getByText("P2")).toBeTruthy(); // in the hover card
     const teros = screen.getByRole("group", { name: "Los Teros" });
     expect(teros.querySelectorAll("path.stroke")).toHaveLength(4);
-    expect(within(teros).queryByText("Tu equipo")).toBeNull();
   });
 
   it("shows the points scored as +N by the score, then counts up to them", async () => {

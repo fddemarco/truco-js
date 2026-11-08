@@ -10,7 +10,7 @@ from dataclasses import dataclass, replace
 from enum import StrEnum
 
 from app.truco.cards import Card, shuffled_deck
-from app.truco.config import GameConfig
+from app.truco.config import Format, GameConfig
 from app.truco.hand import Action, ActionKind, Contest, PicaPicaHand
 from app.truco.scoring import PICA_PICA_FROM
 from app.truco.signals import SenaEvent
@@ -60,7 +60,9 @@ class Match:
     ) -> None:
         self.config = config or GameConfig()
         self.rng = rng or random.Random()
-        self.dealer = choose_first_dealer(self.rng) if first_dealer is None else first_dealer
+        self.dealer = (
+            choose_first_dealer(self.rng, self.players) if first_dealer is None else first_dealer
+        )
         self.score = [0, 0]
         self.pica_pica_started = False
         self.hand: Contest | PicaPicaHand | None = None
@@ -74,6 +76,11 @@ class Match:
         self._before_last: tuple[list[int], bool] = ([0, 0], False)
 
     @property
+    def players(self) -> int:
+        # A property, so games saved before formats existed still load (GameConfig's default).
+        return self.config.players
+
+    @property
     def finished(self) -> bool:
         return self.result is not None
 
@@ -85,9 +92,17 @@ class Match:
     def next_hand_kind(self) -> HandKind:
         """Pica-pica alternates with redonda after a team reaches 5, until one reaches 25 (15.1).
 
-        With another target, until one is as close to it as 25 is to 30 (scoring).
+        With another target, until one is as close to it as 25 is to 30 (scoring). The
+        redonda format never plays pica-pica, and a pica-pica partido (one against one) plays
+        every mano as its single duelo.
         """
-        if not self.pica_pica_started or max(self.score) >= self.config.scoring.pica_pica_until:
+        if self.config.format == Format.PICA_PICA:
+            return HandKind.PICA_PICA
+        if (
+            self.config.format == Format.REDONDA
+            or not self.pica_pica_started
+            or max(self.score) >= self.config.scoring.pica_pica_until
+        ):
             return HandKind.REDONDA
         last = self.history[-1].kind
         return HandKind.PICA_PICA if last == HandKind.REDONDA else HandKind.REDONDA
@@ -131,6 +146,8 @@ class Match:
         """Interactive señas. A seña from outside the current duelo is interference (15.6)."""
         if not self.config.interactive:
             raise MatchError("timed señas are only played in interactive mode")
+        if not self.config.partners:
+            raise MatchError("one against one, there is no partner to signal")
         if self.hand is None:
             raise MatchError("no mano in progress")
         if isinstance(self.hand, Contest):
@@ -152,8 +169,8 @@ class Match:
     # --- internals -------------------------------------------------------------------
 
     def _deal(self, cards: dict[int, list[Card]] | None) -> Contest | PicaPicaHand:
-        mano = mano_of(self.dealer)
-        order = order_from(mano)
+        mano = mano_of(self.dealer, self.players)
+        order = order_from(mano, self.players)
         if cards is None:
             # One card at a time, starting to the dealer's right (5.5).
             deck = shuffled_deck(self.rng)
@@ -163,7 +180,12 @@ class Match:
                     cards[s].append(deck.pop())
         self.hand_kind = self.next_hand_kind()
         scores = (self.score[0], self.score[1])
-        if self.hand_kind == HandKind.PICA_PICA:
+        if self.hand_kind == HandKind.PICA_PICA and self.players == 2:
+            # One against one: the whole mano is one duelo, scored like a mano (11.3).
+            self.hand = Contest(
+                order, cards, pica_pica=False, scores=scores, config=self.config, rng=self.rng
+            )
+        elif self.hand_kind == HandKind.PICA_PICA:
             self.hand = PicaPicaHand(cards, mano, scores, self.config, self.rng)
         else:
             self.hand = Contest(
@@ -186,7 +208,7 @@ class Match:
             self.score[t] = self.config.scoring.capped(self.score[t], points[t])
         self.history.append(HandRecord(self.hand_kind, self.dealer, points))
         self.hand = None
-        self.dealer = right_of(self.dealer)  # 5.7
+        self.dealer = right_of(self.dealer, self.players)  # 5.7
         if max(self.score) >= PICA_PICA_FROM:
             self.pica_pica_started = True
         for t in (0, 1):

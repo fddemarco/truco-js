@@ -7,6 +7,7 @@
     errorMessage,
     type BotConfig,
     type BotPreset,
+    type Format,
     type RuleMode,
     type ScoringInfo,
     type SeatSetup,
@@ -30,6 +31,9 @@
   let presets = $state<BotPreset[]>([]);
   let saved = $state<BotConfig[]>([]);
   let mode = $state<RuleMode>("strict");
+  // reglamento and redonda: three against three; pica_pica: one against one.
+  let format = $state<Format>("reglamento");
+  const players = $derived(format === "pica_pica" ? 2 : 6);
   // The home page links here with ?where=online or ?where=local.
   let where = $state<"local" | "online">(
     page.url.searchParams.get("where") === "online" ? "online" : "local",
@@ -55,7 +59,7 @@
   let teamNames = $state<[string, string]>(drawTeamNames());
   /** Characters picked by another row, not offered again. */
   const takenBy = (i: number) =>
-    rows.flatMap((r, j) => (j !== i && r.character ? [r.character] : []));
+    seated.flatMap((r, j) => (j !== i && r.character ? [r.character] : []));
 
   async function loadSaved() {
     saved = (await api.GET("/api/bots")).data ?? [];
@@ -75,7 +79,9 @@
     scoringInfo = sc.data ?? null;
   });
 
-  const humans = $derived(rows.flatMap((r, i) => (r.kind === "human" ? [i] : [])));
+  // The seats of this format: all six, or the first two one against one.
+  const seated = $derived(rows.slice(0, players));
+  const humans = $derived(seated.flatMap((r, i) => (r.kind === "human" ? [i] : [])));
 
   function setup(row: Row): SeatSetup {
     const character = row.character || null;
@@ -102,7 +108,8 @@
     const created = await api.POST("/api/games", {
       body: {
         mode,
-        seats: rows.map(setup),
+        format,
+        seats: seated.map(setup),
         team_names: names.every(Boolean) ? names : null,
         scoring: scoringSetup(profile.scoring),
       },
@@ -178,6 +185,16 @@
       </fieldset>
 
       <fieldset class="space-y-1 text-sm">
+        <legend class="mb-1 font-semibold">{t("play.format")}</legend>
+        {#each ["reglamento", "redonda", "pica_pica"] as const as f (f)}
+          <label class="flex items-center gap-2">
+            <input type="radio" name="format" value={f} bind:group={format} />
+            {t(`play.format.${f}`)}
+          </label>
+        {/each}
+      </fieldset>
+
+      <fieldset class="space-y-1 text-sm">
         <legend class="mb-1 font-semibold">{t("play.where")}</legend>
         {#each ["local", "online"] as const as w (w)}
           <label class="flex items-center gap-2">
@@ -220,7 +237,7 @@
           </tr>
         </thead>
         <tbody>
-          {#each rows as row, i (i)}
+          {#each seated as row, i (i)}
             <tr class={i % 2 ? "bg-rose-400/10" : "bg-[#818cf8]/10"} title={teamNames[i % 2]}>
               <td
                 class="border-l-4 font-semibold {i % 2

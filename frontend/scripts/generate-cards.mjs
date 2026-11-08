@@ -5,6 +5,7 @@
 // static/suits/<suit>.svg            suit symbols for UI use
 // static/ui/fosforo.svg              matchstick for the tally scoreboard
 // static/ui/bot.svg                  robot badge for bot seats
+// static/ui/stats/<key>.svg          medallions for the end-of-partido facts (app/games/stats.py)
 // static/favicon.svg, static/logo.svg
 
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -141,6 +142,69 @@ function logo() {
   );
 }
 
+// --- end-of-partido medallions: a gold-rimmed disc of dark wood, one glyph each ----------
+
+const AMBER = "#fcd34d";
+const EMBER = "#f59e0b";
+
+function card(x, y, w, h, rot, inner = "") {
+  return `<g transform="rotate(${rot} ${x + w / 2} ${y + h})"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2.5" fill="${PAPER}" stroke="${INK}" stroke-width="1.2"/>${inner}</g>`;
+}
+
+const STAT_GLYPHS = {
+  // a deck: how many manos
+  manos: `${card(19, 18, 18, 26, 0, `<rect x="22" y="21" width="12" height="20" rx="1.5" fill="#7c2d12"/>`)}
+${card(23, 20, 18, 26, 8, `<rect x="26" y="23" width="12" height="20" rx="1.5" fill="#7c2d12"/>`)}
+${card(27, 22, 18, 26, 16, symbol("oro", 36, 35, 0.11))}`,
+  // a horseshoe, ends up, and a sparkle
+  luckiest: `<path d="M20 20 v10 a12 12 0 0 0 24 0 v-10" fill="none" stroke="${AMBER}" stroke-width="6" stroke-linecap="round"/>
+<g fill="#78350f"><circle cx="20" cy="25" r="1.3"/><circle cx="44" cy="25" r="1.3"/><circle cx="23" cy="37" r="1.3"/><circle cx="41" cy="37" r="1.3"/><circle cx="32" cy="42" r="1.3"/></g>
+<path d="M45 13 l1.6 4 4 1.6 -4 1.6 -1.6 4 -1.6 -4 -4 -1.6 4 -1.6 z" fill="#fff7d6"/>`,
+  // a rain cloud
+  unluckiest: `<path d="M21 36 a7 7 0 0 1 1 -14 a10 10 0 0 1 19 -2 a8 8 0 0 1 2 16 z" fill="#cbd5e1" stroke="#64748b" stroke-width="1.5"/>
+<g stroke="#7dd3fc" stroke-width="2.5" stroke-linecap="round"><line x1="24" y1="41" x2="22" y2="47"/><line x1="32" y1="41" x2="30" y2="49"/><line x1="40" y1="41" x2="38" y2="47"/></g>`,
+  // three cards fanned, under a crown
+  strongest_hand: `${card(18, 24, 14, 21, -18, symbol("espada", 25, 34, 0.1))}
+${card(25, 22, 14, 21, 0, symbol("basto", 32, 32, 0.1))}
+${card(32, 24, 14, 21, 18, symbol("espada", 39, 34, 0.1))}
+<path d="M24 19 l2 -7 4 4 2 -6 2 6 4 -4 2 7 z" fill="${AMBER}" stroke="#92400e" stroke-width="1"/>`,
+  // two cards of one suit: the tanto
+  best_tanto: `${card(19, 18, 16, 25, -10, symbol("copa", 27, 30, 0.12))}
+${card(29, 18, 16, 25, 10, symbol("copa", 37, 30, 0.12))}
+<text x="32" y="53" text-anchor="middle" font-family="${FONT}" font-size="10" font-weight="bold" fill="${AMBER}">33</text>`,
+  // a carnival mask: the faroles
+  liar: `<path d="M14 26 q18 -8 36 0 q0 12 -10 13 q-5 0 -8 -5 q-3 5 -8 5 q-10 -1 -10 -13 z" fill="#a855f7" stroke="#3b0764" stroke-width="1.5"/>
+<ellipse cx="24.5" cy="29" rx="4" ry="2.6" fill="#1c1006"/><ellipse cx="39.5" cy="29" rx="4" ry="2.6" fill="#1c1006"/>
+<path d="M50 26 q6 -8 3 -14" fill="none" stroke="${AMBER}" stroke-width="2" stroke-linecap="round"/>`,
+  // a crown
+  envido_king: `<path d="M16 42 l-2 -20 9 8 9 -13 9 13 9 -8 -2 20 z" fill="${AMBER}" stroke="#92400e" stroke-width="1.5" stroke-linejoin="round"/>
+<rect x="16" y="42" width="32" height="5" rx="1.5" fill="${EMBER}" stroke="#92400e" stroke-width="1.2"/>
+<circle cx="32" cy="34" r="2.6" fill="#b3261e"/><circle cx="23" cy="36" r="1.8" fill="#1f4e8c"/><circle cx="41" cy="36" r="1.8" fill="#2e6b30"/>`,
+  // a trophy
+  rondas: `<path d="M22 15 h20 v9 a10 10 0 0 1 -20 0 z" fill="${AMBER}" stroke="#92400e" stroke-width="1.5"/>
+<path d="M22 18 h-5 a5 5 0 0 0 6 9 M42 18 h5 a5 5 0 0 1 -6 9" fill="none" stroke="${AMBER}" stroke-width="2.2"/>
+<rect x="29.5" y="33" width="5" height="7" fill="${EMBER}"/><rect x="23" y="40" width="18" height="6" rx="1.5" fill="${EMBER}" stroke="#92400e" stroke-width="1.2"/>`,
+  // a megaphone and its noise
+  loudest: `<path d="M16 28 v8 h6 l14 9 v-26 l-14 9 z" fill="${AMBER}" stroke="#92400e" stroke-width="1.5" stroke-linejoin="round"/>
+<rect x="19" y="36" width="5" height="9" rx="1.5" fill="${EMBER}"/>
+<g fill="none" stroke="#fff7d6" stroke-width="2.2" stroke-linecap="round"><path d="M41 26 q3 6 0 12"/><path d="M45 22 q6 10 0 20"/><path d="M49 18 q9 14 0 28"/></g>`,
+  // a shield
+  prudent: `<path d="M32 13 l15 5 v10 c0 11 -7 18 -15 22 c-8 -4 -15 -11 -15 -22 v-10 z" fill="#2e6b30" stroke="#86efac" stroke-width="1.8"/>
+<path d="M25 31 l5 5 10 -11" fill="none" stroke="#fff7d6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`,
+};
+
+function medallion(key) {
+  return svg(
+    key,
+    `<defs><linearGradient id="rim" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fde68a"/><stop offset="0.5" stop-color="${EMBER}"/><stop offset="1" stop-color="#92400e"/></linearGradient>
+<radialGradient id="wood" cx="0.4" cy="0.35" r="0.7"><stop offset="0" stop-color="#5b3418"/><stop offset="1" stop-color="#24140a"/></radialGradient></defs>
+<circle cx="32" cy="32" r="30" fill="url(#rim)"/>
+<circle cx="32" cy="32" r="26" fill="url(#wood)" stroke="#1c1006" stroke-width="1"/>
+${STAT_GLYPHS[key]}`,
+    { width: 64, height: 64, viewBox: "0 0 64 64" },
+  );
+}
+
 // --- write -------------------------------------------------------------------------
 
 function write(path, content) {
@@ -152,6 +216,7 @@ function write(path, content) {
 for (const suit of Object.keys(SUITS)) write(`suits/${suit}.svg`, suitIcon(suit));
 write("ui/fosforo.svg", fosforo());
 write("ui/bot.svg", bot());
+for (const key of Object.keys(STAT_GLYPHS)) write(`ui/stats/${key}.svg`, medallion(key));
 write("favicon.svg", favicon());
 write("logo.svg", logo());
-console.log("wrote suit icons, fósforo, bot, favicon and logo");
+console.log("wrote suit icons, fósforo, bot, stat medallions, favicon and logo");

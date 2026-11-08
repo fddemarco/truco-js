@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { GameAction, GameEvent, GameView } from "$lib/api/client";
-  import { BANNERS, LEAVE, LOUD, SWEEP_MS, type Beat } from "$lib/animation";
+  import { BANNERS, ENVIDO_STAGGER_MS, LEAVE, LOUD, SWEEP_MS, type Beat } from "$lib/animation";
   import { play } from "$lib/audio.svelte";
   import type { BodySpot, Sena } from "$lib/avatar/avatar";
   import { cardName, type Suit } from "$lib/cards";
@@ -10,12 +10,13 @@
     HAND_KINDS,
     across,
     activeSenas,
+    bestSaid,
     canPlay,
+    envidoSaid,
     leadingCards,
     prompt,
     type Prompt,
-    seatsAcross,
-    tableSide,
+    tableColumns,
   } from "$lib/game";
   import { t } from "$lib/i18n.svelte";
   import { actionForKey, commandForCode, senaForCode } from "$lib/keys";
@@ -118,10 +119,8 @@
     };
   });
 
-  // The end of the partido: once the last move has played out, until the player looks back
-  // at the table.
-  let endClosed = $state(false);
-  const gameOver = $derived(!!view.result && !busy && !endClosed);
+  // The end of the partido: once the last move has played out.
+  const gameOver = $derived(!!view.result && !busy);
 
   // The moves: shown while the pointer is over their button or the panel, never by a click.
   let logOpen = $state(false);
@@ -138,9 +137,12 @@
 
   // --- seating and camera -----------------------------------------------------------------
   // Columns are physical positions along the table, from the viewer's left to right: the
-  // player across in the top row, the one on the viewer's side in the bottom row.
-  const far = $derived(seatsAcross(viewer));
-  const near = $derived([0, 1, 2].map((i) => 3 * tableSide(viewer) + i));
+  // player across in the top row, the one on the viewer's side in the bottom row. One against
+  // one, both sit in the middle column and the others are empty (null).
+  const players = $derived(view.seats.length);
+  const columns = $derived(tableColumns(viewer, players));
+  const far = $derived(columns.far);
+  const near = $derived(columns.near);
   const myTeam = $derived(view.me !== null ? view.seats[view.me].team : null);
 
   let focus = $state(0);
@@ -149,7 +151,7 @@
     // A new viewer (hot-seat) looks straight across first.
     if (viewer !== focusedFor) {
       focusedFor = viewer;
-      look(across(viewer));
+      look(across(viewer, players));
     }
   });
   const focusIndex = $derived(Math.max(0, far.indexOf(focus)));
@@ -160,8 +162,11 @@
   }
   function pan(step: number) {
     const i = Math.min(2, Math.max(0, focusIndex + step));
-    if (far[i] !== focus) look(far[i]);
+    const seat = far[i];
+    if (seat != null && seat !== focus) look(seat);
   }
+  /** Someone to turn to on that side. */
+  const canPan = (step: number) => far[focusIndex + step] != null;
 
   /** Where a seat sits in the scene, in % of its width and height (for flying cards). */
   function anchor(seat: number): { x: number; y: number } {
@@ -275,8 +280,14 @@
   // The current beat, split into what each part of the table draws. While its player thinks,
   // only the thinking dots show; the move is drawn once it's made.
   const move = $derived(thinking ? null : beat);
+  // Numbers said in the envido stay up in their own bubbles (below), not as passing words.
   const speaking = $derived(
-    move && move.seat !== null && move.kind !== "jugar" && !BANNERS.has(move.kind) ? move : null,
+    move &&
+      move.seat !== null &&
+      !["jugar", "declarar", "son_buenas"].includes(move.kind) &&
+      !BANNERS.has(move.kind)
+      ? move
+      : null,
   );
   // Only a new deal and the end of the match get a banner. Rondas, envidos and the end of a
   // mano show on the cards, the scoreboard and the log instead.
@@ -285,6 +296,33 @@
   );
   const leaving = $derived(move && move.seat !== null && LEAVE.has(move.kind) ? move : null);
   const dealing = $derived(move?.kind === "reparto" ? move : null);
+
+  // --- the envido, said out loud ---------------------------------------------------------------
+  // Each number (or "son buenas") comes up over its player, ENVIDO_STAGGER_MS after the one
+  // before, and stays until the envido is over. The best so far turns gold.
+  const envido = $derived(envidoSaid(view, move?.kind ?? null));
+  let revealed = $state<number[]>([]);
+  let lastReveal = 0;
+  $effect(() => {
+    const said = envido;
+    if (!said.length) {
+      if (revealed.length) revealed = [];
+      lastReveal = 0;
+      return;
+    }
+    const next = said.find((s) => !revealed.includes(s.seat));
+    if (!next) return;
+    const id = setTimeout(
+      () => {
+        lastReveal = Date.now();
+        revealed = [...revealed, next.seat];
+      },
+      Math.max(0, lastReveal + ENVIDO_STAGGER_MS - Date.now()),
+    );
+    return () => clearTimeout(id);
+  });
+  const envidoShown = $derived(envido.filter((s) => revealed.includes(s.seat)));
+  const envidoBest = $derived(bestSaid(envidoShown, view));
 
   function flying(seat: number) {
     return move?.kind === "jugar" && move.seat === seat ? move.id : null;
@@ -297,6 +335,8 @@
   }
 
   // --- input ---------------------------------------------------------------------------------
+  // Timed señas: interactive mode, with a partner to signal (not one against one).
+  const timedSenas = $derived(view.mode === "interactive" && view.seats.length > 2);
   // Interactive señas: hold a key, release to send with the held time as duration.
   const held = new Map<string, number>();
   const keys = $derived(bindings());
@@ -343,7 +383,7 @@
       onAct(action);
       return;
     }
-    if (!onSena || view.mode !== "interactive" || e.repeat) return;
+    if (!onSena || !timedSenas || e.repeat) return;
     if (senaForCode(e.code, keys)) {
       e.preventDefault();
       held.set(e.code, Date.now());
@@ -404,6 +444,28 @@
 <!-- Far players sit at the top edge of the view: their words show over their face. -->
 {#snippet bubble(seat: number, place: "over" | "above")}
   {@const where = place === "over" ? "top-1/3" : "-top-9"}
+  {@const tanto = envidoShown.find((s) => s.seat === seat)}
+  {#if tanto}
+    {@const best = envidoBest === seat}
+    <div
+      class="tanto pointer-events-none absolute left-1/2 z-30 -translate-x-1/2 rounded-full px-3 py-1 font-extrabold whitespace-nowrap shadow-lg {best
+        ? 'best text-lg text-amber-950'
+        : tanto.number === null
+          ? 'bg-white/90 text-sm text-slate-600'
+          : 'bg-white text-lg text-slate-900'} {where}"
+      role="status"
+      data-testid="envido-said-{seat}"
+      data-best={best || undefined}
+    >
+      {tanto.number ?? ACTION_LABELS.son_buenas}
+      {#if best}
+        <span
+          class="star absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full bg-amber-400 text-[0.7rem] text-amber-950 shadow"
+          aria-hidden="true">★</span
+        >
+      {/if}
+    </div>
+  {/if}
   {#if thinking && beat && beat.seat === seat}
     {#key beat.id}
       <div
@@ -483,77 +545,87 @@
 
       <!-- the players across, at the far edge -->
       <div class="absolute inset-x-0 top-0 grid h-[21%] grid-cols-3">
-        {#each far as top (top)}
-          {@const ts = view.seats[top]}
-          <div class="flex justify-center pt-2">
-            <div class="relative flex flex-col items-center gap-1" data-testid="seat-{top}">
-              {@render bubble(top, "over")}
-              <SeatBadge
-                seat={ts}
-                label={nameOf(top)}
-                look={top === focus ? "focus" : "dim"}
-                size={top === focus ? "lg" : "md"}
-                mine={ts.team === myTeam}
-                role={roleOf(top)}
-                ownPie={view.seats[top].team === (myTeam ?? 0)}
-                turn={view.to_act === top && !busy}
-                acting={acting(top)}
-                sena={senaOf(top)}
-                onclick={() => look(top)}
-              />
-              <Hand cards={ts.cards_left} width={34} label={t("game.handOf", { name: ts.name })} />
-              {#if ts.shown.length}
-                <div class="flex gap-1">
-                  {#each ts.shown as c (`${c.number}-${c.suit}`)}
-                    <PlayingCard number={c.number} suit={c.suit as Suit} class="w-8" />
-                  {/each}
-                </div>
-              {/if}
+        {#each far as top, col (col)}
+          {#if top === null}<div></div>{:else}
+            {@const ts = view.seats[top]}
+            <div class="flex justify-center pt-2">
+              <div class="relative flex flex-col items-center gap-1" data-testid="seat-{top}">
+                {@render bubble(top, "over")}
+                <SeatBadge
+                  seat={ts}
+                  label={nameOf(top)}
+                  look={top === focus ? "focus" : "dim"}
+                  size={top === focus ? "lg" : "md"}
+                  mine={ts.team === myTeam}
+                  role={roleOf(top)}
+                  ownPie={view.seats[top].team === (myTeam ?? 0)}
+                  turn={view.to_act === top && !busy}
+                  acting={acting(top)}
+                  sena={senaOf(top)}
+                  onclick={() => look(top)}
+                />
+                <Hand
+                  cards={ts.cards_left}
+                  width={34}
+                  label={t("game.handOf", { name: ts.name })}
+                />
+                {#if ts.shown.length}
+                  <div class="flex gap-1">
+                    {#each ts.shown as c (`${c.number}-${c.suit}`)}
+                      <PlayingCard number={c.number} suit={c.suit as Suit} class="w-8" />
+                    {/each}
+                  </div>
+                {/if}
+              </div>
             </div>
-          </div>
+          {/if}
         {/each}
       </div>
 
       <!-- the played cards on the felt, each stack in front of its player -->
       <div class="absolute inset-x-0 top-[23%] bottom-[39%] grid grid-cols-3">
         {#each [0, 1, 2] as col (col)}
+          {@const top = far[col]}
+          {@const bottom = near[col]}
           <div class="flex flex-col items-center justify-between py-2">
-            {@render stack(far[col], "far")}
-            {@render stack(near[col], near[col] === viewer ? "me" : "near")}
+            {#if top !== null}{@render stack(top, "far")}{/if}
+            {#if bottom !== null}{@render stack(bottom, bottom === viewer ? "me" : "near")}{/if}
           </div>
         {/each}
       </div>
 
       <!-- the viewer's side, at the near edge: a mirror of the far one -->
       <div class="absolute inset-x-0 top-[63%] grid h-[17%] grid-cols-3">
-        {#each near as bottom (bottom)}
-          {@const bs = view.seats[bottom]}
-          <div class="flex justify-center">
-            <div
-              class="relative flex flex-col items-center justify-start gap-1"
-              data-testid="seat-{bottom}"
-            >
-              {@render bubble(bottom, "above")}
-              {#if bottom !== viewer}
-                <Hand
-                  cards={bs.cards_left}
-                  width={26}
-                  label={t("game.handOf", { name: bs.name })}
+        {#each near as bottom, col (col)}
+          {#if bottom === null}<div></div>{:else}
+            {@const bs = view.seats[bottom]}
+            <div class="flex justify-center">
+              <div
+                class="relative flex flex-col items-center justify-start gap-1"
+                data-testid="seat-{bottom}"
+              >
+                {@render bubble(bottom, "above")}
+                {#if bottom !== viewer}
+                  <Hand
+                    cards={bs.cards_left}
+                    width={26}
+                    label={t("game.handOf", { name: bs.name })}
+                  />
+                {/if}
+                <SeatBadge
+                  seat={bs}
+                  label={nameOf(bottom)}
+                  look={bottom === viewer && view.me !== null ? "focus" : "dim"}
+                  size="md"
+                  mine={bs.team === myTeam}
+                  role={roleOf(bottom)}
+                  ownPie={view.seats[bottom].team === (myTeam ?? 0)}
+                  turn={view.to_act === bottom && !busy}
+                  acting={acting(bottom)}
                 />
-              {/if}
-              <SeatBadge
-                seat={bs}
-                label={nameOf(bottom)}
-                look={bottom === viewer && view.me !== null ? "focus" : "dim"}
-                size="md"
-                mine={bs.team === myTeam}
-                role={roleOf(bottom)}
-                ownPie={view.seats[bottom].team === (myTeam ?? 0)}
-                turn={view.to_act === bottom && !busy}
-                acting={acting(bottom)}
-              />
+              </div>
             </div>
-          </div>
+          {/if}
         {/each}
       </div>
 
@@ -586,7 +658,7 @@
               <PlayingCard faceDown class="w-9" />
             </div>
           {/each}
-          {#each [...far, ...near] as seat, i (seat)}
+          {#each [...far, ...near].filter((s) => s !== null) as seat, i (seat)}
             {@const to = anchor(seat)}
             <div
               class="travel deal pointer-events-none absolute z-20"
@@ -604,13 +676,13 @@
     <button
       class="absolute top-[9%] left-2 z-20 rounded-full bg-white/80 px-3 py-1 text-xl shadow disabled:opacity-30"
       aria-label={t("game.lookLeft")}
-      disabled={focusIndex === 0}
+      disabled={!canPan(-1)}
       onclick={() => pan(-1)}>‹</button
     >
     <button
       class="absolute top-[9%] right-2 z-20 rounded-full bg-white/80 px-3 py-1 text-xl shadow disabled:opacity-30"
       aria-label={t("game.lookRight")}
-      disabled={focusIndex === 2}
+      disabled={!canPan(1)}
       onclick={() => pan(1)}>›</button
     >
 
@@ -802,14 +874,14 @@
     </div>
   {/if}
   {#if gameOver}
-    <GameOver {view} {myTeam} nameOf={(seat) => nameOf(seat)} onClose={() => (endClosed = true)} />
+    <GameOver {view} {myTeam} nameOf={(seat) => nameOf(seat)} />
   {/if}
 </div>
 
 {#if settingsTab}
   <GameSettings tab={settingsTab} onClose={() => (settingsTab = null)} />
 {/if}
-{#if keymapOpen && !settingsTab}<KeyMap senas={view.mode === "interactive"} />{/if}
+{#if keymapOpen && !settingsTab}<KeyMap senas={timedSenas} />{/if}
 
 <style>
   .camera {
@@ -875,6 +947,28 @@
     box-shadow:
       0 0 0 3px #e2e8f0,
       0 0 16px 4px rgb(226 232 240 / 0.6);
+  }
+  /* A number said in the envido: it pops up, and the best so far turns gold like the card
+     winning a ronda (.lead). */
+  .tanto {
+    animation: tanto-in 0.3s ease-out both;
+    transition:
+      transform 0.25s ease-out,
+      box-shadow 0.25s ease-out,
+      background 0.25s ease-out;
+  }
+  .tanto.best {
+    background: linear-gradient(135deg, #fde68a, #fbbf24 55%, #f59e0b);
+    box-shadow:
+      0 0 0 3px #fbbf24,
+      0 0 22px 6px rgb(251 191 36 / 0.65);
+    transform: translateY(-5px) scale(1.06);
+  }
+  @keyframes tanto-in {
+    from {
+      opacity: 0;
+      scale: 0.6;
+    }
   }
   .star {
     animation: star-in 0.35s ease-out both;
@@ -1061,8 +1155,12 @@
 
   @media (prefers-reduced-motion: reduce) {
     .camera,
-    .played {
+    .played,
+    .tanto {
       transition: none;
+    }
+    .tanto {
+      animation: none;
     }
     .fly,
     .say,

@@ -53,13 +53,11 @@
   const TEAM = [
     {
       dot: "bg-indigo-400",
-      text: "text-indigo-200",
       ring: "ring-indigo-300",
       plus: "#a5b4fc",
     },
     {
       dot: "bg-rose-400",
-      text: "text-rose-200",
       ring: "ring-rose-300",
       plus: "#fda4af",
     },
@@ -163,12 +161,6 @@
             {/each}
           </svg>
         {/each}
-        <span
-          class="ml-auto text-[0.6rem] tracking-wide whitespace-nowrap {TEAM[team].text} uppercase"
-        >
-          {#if myTeam === team}<span>{t("game.yourTeam")}</span> ·
-          {/if}{score > view.malas_max ? "buenas" : "malas"}
-        </span>
       </div>
 
       <!-- who plays for this team -->

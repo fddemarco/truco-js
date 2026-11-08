@@ -599,10 +599,17 @@ export interface components {
       /** Hand Kind */
       hand_kind: string | null;
     };
+    /**
+     * Format
+     * @enum {string}
+     */
+    Format: "reglamento" | "redonda" | "pica_pica";
     /** GameCreate */
     GameCreate: {
       /** @default strict */
       mode?: components["schemas"]["RuleMode"];
+      /** @default reglamento */
+      format?: components["schemas"]["Format"];
       scoring?: components["schemas"]["ScoringSetup"] | null;
       /** Seats */
       seats: components["schemas"]["SeatSetup"][];
@@ -621,6 +628,8 @@ export interface components {
       /** Id */
       id: string;
       mode: components["schemas"]["RuleMode"];
+      /** @default reglamento */
+      format: components["schemas"]["Format"];
       /** Version */
       version: number;
       /** Server Ms */

@@ -3,6 +3,10 @@ import type { GameAction, GameView } from "$lib/api/client";
 import {
   activeSenas,
   actionLabel,
+  bestSaid,
+  tableColumns,
+  envidoOrder,
+  envidoSaid,
   buttonActions,
   forgetToken,
   loadHost,
@@ -289,5 +293,71 @@ describe("status", () => {
     });
     expect(s.truco).toEqual({ label: "Truco", state: "sung" });
     expect(pendingCanto(table())).toBeNull();
+  });
+});
+
+describe("envido said", () => {
+  const turns = [0, 1, 2, 3, 4, 5];
+  const envido = (tantos: Record<number, number | null>) => ({
+    calls: ["envido"],
+    accepted: true,
+    team: 0,
+    points: 2,
+    winner_seat: null,
+    tantos,
+  });
+
+  it("replays the order numbers were said in: a team holding the best waits its turn (11.5)", () => {
+    // 0 says 20, 1 says son buenas, 2 (team 0, ahead) waits, 3 says 30, then 4 says 31 and 5
+    // (team 1, behind) son buenas; 2 never has to speak.
+    const said = { 0: 20, 1: null, 3: 30, 4: 31, 5: null };
+    expect(envidoOrder(said, turns).map((s) => s.seat)).toEqual([0, 1, 3, 4, 5]);
+    // 2 holds back while team 0 leads and speaks once 3 took the lead and 4 said son buenas;
+    // then 5, who waited while 3 led
+    const later = { 0: 20, 1: null, 3: 30, 4: null, 2: 33, 5: null };
+    expect(envidoOrder(later, turns).map((s) => s.seat)).toEqual([0, 1, 3, 4, 2, 5]);
+  });
+
+  it("shows the declarations as they are said, and the numbers on the envido's last beats", () => {
+    const declaring = table({ phase: "declaring", mano: 2, declarations: { 2: 27, 3: null } });
+    expect(envidoSaid(declaring)).toEqual([
+      { seat: 2, number: 27 },
+      { seat: 3, number: null },
+    ]);
+    const done = table({ mano: 0, envido: envido({ 0: 25, 1: 28 }) });
+    expect(envidoSaid(done, "envido_resuelto").map((s) => s.number)).toEqual([25, 28]);
+    expect(envidoSaid(done, "son_buenas")).toHaveLength(2);
+    // over: play goes on
+    expect(envidoSaid(done, "jugar")).toEqual([]);
+    expect(envidoSaid(done)).toEqual([]);
+    // no quiero: nobody said a number
+    const rejected = table({ envido: { ...envido({}), accepted: false } });
+    expect(envidoSaid(rejected, "envido_resuelto")).toEqual([]);
+  });
+
+  it("finds the best number so far, a tie going to whoever is closer to mano (11.6)", () => {
+    const view = table({ mano: 3 });
+    expect(bestSaid([], view)).toBeNull();
+    expect(bestSaid([{ seat: 1, number: null }], view)).toBeNull();
+    const said = [
+      { seat: 3, number: 28 },
+      { seat: 4, number: 30 },
+      { seat: 5, number: null },
+      { seat: 1, number: 30 },
+    ];
+    expect(bestSaid(said, view)).toBe(4);
+    expect(bestSaid(said.slice(0, 1), view)).toBe(3);
+  });
+});
+
+describe("tableColumns", () => {
+  it("puts three across and three on the viewer's side, from the viewer's left", () => {
+    expect(tableColumns(0)).toEqual({ far: [5, 4, 3], near: [0, 1, 2] });
+    expect(tableColumns(4)).toEqual({ far: [2, 1, 0], near: [3, 4, 5] });
+  });
+
+  it("seats one against one face to face in the middle", () => {
+    expect(tableColumns(0, 2)).toEqual({ far: [null, 1, null], near: [null, 0, null] });
+    expect(tableColumns(1, 2)).toEqual({ far: [null, 0, null], near: [null, 1, null] });
   });
 });
