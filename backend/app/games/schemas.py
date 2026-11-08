@@ -71,11 +71,14 @@ class GameCreate(BaseModel):
 
 class GameCreated(BaseModel):
     id: str
+    # Whoever created the game: frees a seat whose player lost their token (seat reset).
+    host_token: str
 
 
 class JoinRequest(BaseModel):
     seat: int = Field(ge=0, le=5)
     name: str = Field("", max_length=40)
+    character: Character | None = None  # kept if no other seat has it
 
 
 class Joined(BaseModel):
@@ -98,7 +101,8 @@ class ActionModel(BaseModel):
 
 
 class TokenRequest(BaseModel):
-    token: str
+    """A move's view options; the seat token goes in the X-Seat-Token header."""
+
     look: int | None = Field(None, ge=0, le=5)  # the seat the viewer's camera is on
     since: int | None = None  # the last step the client has (see GameView.steps)
 
@@ -124,6 +128,7 @@ class SeatView(BaseModel):
     character: Character
     kind: Literal["human", "bot"]
     joined: bool
+    online: bool  # a bot, or a human seen in the last few seconds (a view or a move)
     in_play: bool  # takes part in the current mano or duelo
     active: bool
     cards_left: int
@@ -156,14 +161,16 @@ class EnvidoView(BaseModel):
     tantos: dict[int, int | None] = {}
 
 
-class EnvidoStakesView(BaseModel):
-    """An envido canto waiting for an answer: what each answer is worth (Anexo B.2/B.3)."""
+class StatView(BaseModel):
+    """A fun fact about the partido, for the end screen (see app/games/stats.py)."""
 
     model_config = READ
 
-    quiero: list[int]  # points if quiero and team 0 / team 1 wins (they differ for a falta)
-    no_quiero: int  # points to the chanter's team
-    team: int  # the chanter's team
+    key: str
+    seat: int | None = None
+    value: float | None = None
+    mano: int | None = None
+    cards: list[CardModel] = []
 
 
 class SenaView(BaseModel):
@@ -192,6 +199,12 @@ class EventView(BaseModel):
     number: int | None = None
     points: list[int] | None = None
     upheld: bool | None = None
+    # envido canto: what quiero is worth if team 0 / team 1 wins it, then no quiero
+    stakes: list[int] | None = None
+    # envido result: each seat's envido (strict: real tantos; interactive: declared, None for
+    # son buenas or not in it)
+    tantos: list[int | None] | None = None
+    hand_kind: str | None = None  # reparto: redonda or pica_pica
 
 
 class ResultView(BaseModel):
@@ -228,9 +241,14 @@ class GameView(BaseModel):
     truco_level: int = 0
     truco_accepted: int = 0
     envido: EnvidoView | None = None
-    envido_stakes: EnvidoStakesView | None = None
+    pies: list[int | None] = [None, None]  # each team's last to play in the mano or duelo
+    stats: list[StatView] = []  # once the partido is over
     declarations: dict[int, int | None] = {}
     can_deal: bool = False
+    # Between manos: when the table deals by itself (epoch ms, server clock) and who may cut
+    # sooner (POST /deal).
+    deal_at: int | None = None
+    cutter: int | None = None
     result: ResultView | None = None
     events: list[EventView] = []
     senas: list[SenaView] = []

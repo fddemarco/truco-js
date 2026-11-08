@@ -1,0 +1,16 @@
+# Not needed to build the SPA or run the API function.
+assets/
+data/
+docs/
+tools/
+.claude/
+backend/.venv/
+backend/tests/
+backend/scripts/
+**/__pycache__/
+**/.pytest_cache/
+**/.ruff_cache/
+frontend/node_modules/
+frontend/.svelte-kit/
+frontend/build/
+.env

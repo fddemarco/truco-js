@@ -31,11 +31,12 @@ from app.truco.envido import (
     EnvidoCall,
     can_call,
     provable_tantos,
+    said_in_order,
     tanto,
 )
 from app.truco.rounds import Play, hand_winner, round_winner
 from app.truco.signals import Sena, SenaEvent, SenaSeen
-from app.truco.table import duel_order, other, team_of
+from app.truco.table import duel_order, other, side, team_of
 from app.truco.truco import LADDER, TrucoCall, next_call
 
 
@@ -137,27 +138,60 @@ class EnvidoResult:
     accepted: bool
     team: int
     points: int
-    # seat -> tanto. Strict: the real tantos. Interactive: what was declared (None = son buenas).
+    # seat -> what the table heard (None = son buenas; teammates of the best don't appear).
+    # Strict: said in turn from the real tantos (11.5). Interactive: what was declared.
     tantos: dict[int, int | None] = field(default_factory=dict)
     winner_seat: int | None = None
 
 
 @dataclass
 class Declaration:
-    """Interactive envido declarations, in order from mano (11.4)."""
+    """Interactive envido declarations, in turn from mano (11.4–11.6).
+
+    The first declares. A player whose team holds the best number stays silent; the others
+    declare or say "son buenas" when their turn comes. A player who stayed silent speaks once
+    the turn comes round again with their team behind. Each player speaks at most once.
+    """
 
     order: list[int]
-    index: int = 0
     declared: dict[int, int | None] = field(default_factory=dict)
     best: int | None = None  # seat with the winning number so far
+    current: int | None = None  # who declares now; None once nobody else has to
 
-    @property
-    def current(self) -> int:
-        return self.order[self.index]
+    def __post_init__(self) -> None:
+        self.current = self.order[0]
 
     @property
     def best_number(self) -> int:
         return -1 if self.best is None else self.declared[self.best] or 0
+
+    def beats(self, seat: int, number: int) -> bool:
+        """`number` said by `seat` beats the best so far; a tie goes to whoever is closer to
+        mano (11.6)."""
+        if self.best is None:
+            return True
+        if number != self.best_number:
+            return number > self.best_number
+        return self.order.index(seat) < self.order.index(self.best)
+
+    def say(self, seat: int, number: int | None) -> None:
+        self.declared[seat] = number
+        if number is not None and self.beats(seat, number):
+            self.best = seat
+        self.current = self._next(seat)
+
+    def _next(self, after: int) -> int | None:
+        i = self.order.index(after)
+        rest = self.order[i + 1 :] + self.order[: i + 1]
+        return next(
+            (
+                s
+                for s in rest
+                if s not in self.declared
+                and (self.best is None or team_of(s) != team_of(self.best))
+            ),
+            None,
+        )
 
 
 @dataclass
@@ -481,12 +515,15 @@ class Contest:
     # --- strict mode ------------------------------------------------------------------
 
     def _signal(self, seat: int, sena: Sena) -> None:
-        """Each teammate notices the seña with probability p, each rival with probability q."""
+        """Each teammate across the table notices the seña with probability p, each rival across
+        it with probability q. In a duelo the rival is the only observer."""
         self._signalled = True
         ronda = len(self.results)
         for observer in self.seats:
             if observer == seat:
                 continue
+            if not self.pica_pica and side(observer) == side(seat):
+                continue  # only faces across the table can be seen (14.4)
             same_team = team_of(observer) == team_of(seat)
             chance = self.config.sena_notice_p if same_team else self.config.sena_leak_q
             if self.rng.random() < chance:
@@ -506,19 +543,11 @@ class Contest:
         self._enter(Phase.DECLARING)
 
     def _declare(self, seat: int, number: int | None) -> None:
-        """First number said counts; a tie goes to whoever declared first, closer to mano (11.6)."""
+        """First number said counts (11.4); a tie goes to whoever is closer to mano (11.6)."""
         d = self.declaration
         assert d is not None
-        d.declared[seat] = number
-        if number is not None and number > d.best_number:
-            d.best = seat
-        d.index += 1
-        # Players whose team already holds the best number don't need to declare.
-        while (
-            d.index < len(d.order) and d.best is not None and team_of(d.current) == team_of(d.best)
-        ):
-            d.index += 1
-        if d.index < len(d.order):
+        d.say(seat, number)
+        if d.current is not None:
             return
         assert d.best is not None
         self._enter(Phase.PLAYING)  # settled into ANSWERING if a truco still waits
@@ -638,14 +667,21 @@ class Contest:
         call = next_call(self.truco_level)
         return [Action(_ACTION_FOR[call])] if call else []
 
+    def _sings_in_turn(self, seat: int) -> bool:
+        """Strict: every canto is in turn. Interactive: sung by the player in turn (13.1)."""
+        return not self.config.interactive or seat == self.turn
+
     def _sing_envido(self, call: EnvidoCall, seat: int) -> None:
         existing = next((p for p in self.pending if p.family == "envido"), None)
         if existing:
             existing.chanter = seat  # a raise answers the previous call
+            # Raised by the player in turn: a canto en turno, it blocks play (13.2).
+            existing.in_turn = existing.in_turn or self._sings_in_turn(seat)
         else:
-            in_turn = not self.config.interactive or seat == self.turn
             self.pending.append(
-                Pending("envido", seat, in_turn, envido_before=list(self.envido_calls))
+                Pending(
+                    "envido", seat, self._sings_in_turn(seat), envido_before=list(self.envido_calls)
+                )
             )
         self.envido_calls.append(call)
 
@@ -658,16 +694,16 @@ class Contest:
             self.truco_accepted = previous
             self.truco_holder = team
             existing.chanter = seat
+            existing.in_turn = existing.in_turn or self._sings_in_turn(seat)  # 13.2
             existing.irregular = level != previous + 1
             existing.truco_before = (previous, previous, team, tuple(self.truco_calls))
         else:
             without_right = self.truco_level > 0 and self.truco_holder != team
-            in_turn = not self.config.interactive or seat == self.turn
             self.pending.append(
                 Pending(
                     "truco",
                     seat,
-                    in_turn,
+                    self._sings_in_turn(seat),
                     irregular=level != self.truco_level + 1 or without_right,
                     truco_before=self._truco_state(),
                 )
@@ -700,11 +736,13 @@ class Contest:
     def _resolve_envido(self, *, accepted: bool, chanter: int) -> None:
         if accepted:
             contenders = [s for s in self.seats if s in self.active]
-            tantos: dict[int, int | None] = {s: tanto(self.dealt[s]) for s in contenders}
-            best = max(t for t in tantos.values() if t is not None)
-            # Ties go to whoever is closer to mano (11.6): the first in play order.
-            winner_seat: int | None = next(s for s in contenders if tantos[s] == best)
-            team = team_of(winner_seat)
+            real = {s: tanto(self.dealt[s]) for s in contenders}
+            # Declared in turn from mano (11.4–11.6): only what the table would hear, so a tanto
+            # kept quiet is never revealed (11.5). The winner is the real best tanto's team.
+            tantos: dict[int, int | None]
+            tantos, winner = said_in_order(contenders, real)
+            winner_seat: int | None = winner
+            team = team_of(winner)
         else:
             tantos, winner_seat, team = {}, None, team_of(chanter)
         points = self._envido_value(accepted=accepted, team=team)
@@ -850,8 +888,10 @@ class PicaPicaHand:
         if duel == now:
             self.current.apply(action, seat)
         elif duel == now - 1:
-            self.duels[duel].apply(action, seat)
-            self._after_claim()
+            claimed = self.duels[duel]
+            claimed.apply(action, seat)
+            if claimed.claims and claimed.claims[-1][1]:
+                self._after_claim()  # upheld: the points moved
         else:
             self.conceded.add(seat)
         self._settle()
@@ -870,8 +910,11 @@ class PicaPicaHand:
         return next(i for i, pair in enumerate(self.pairs) if seat in pair)
 
     def _settle(self) -> None:
-        if len(self.duels) > 1 and self.current.started:
-            self.duels[-2].close_claims()
+        if self.current.started:
+            # Reclamos close once the next duelo starts (15.9); a duelo settled by concessions
+            # never starts, so close every earlier one, not just the last.
+            for duel in self.duels[:-1]:
+                duel.close_claims()
         if self.current.finished:
             self._after_duel()
 

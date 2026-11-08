@@ -4,6 +4,7 @@
 //
 // static/suits/<suit>.svg            suit symbols for UI use
 // static/ui/fosforo.svg              matchstick for the tally scoreboard
+// static/ui/bot.svg                  robot badge for bot seats
 // static/favicon.svg, static/logo.svg
 
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -103,6 +104,23 @@ function fosforo() {
   );
 }
 
+function bot() {
+  // A robot head in the table's amber, on a dark disc so it reads over any portrait.
+  return svg(
+    "Bot",
+    `<circle cx="16" cy="16" r="15.5" fill="#1e293b" stroke="#0f172a"/>
+<line x1="16" y1="5" x2="16" y2="9" stroke="#fcd34d" stroke-width="2" stroke-linecap="round"/>
+<circle cx="16" cy="4.5" r="1.8" fill="#fcd34d"/>
+<rect x="7.5" y="9.5" width="17" height="13" rx="3.5" fill="none" stroke="#fcd34d" stroke-width="2"/>
+<circle cx="12.5" cy="15.5" r="1.8" fill="#fcd34d"/>
+<circle cx="19.5" cy="15.5" r="1.8" fill="#fcd34d"/>
+<line x1="5" y1="15.5" x2="7.5" y2="15.5" stroke="#fcd34d" stroke-width="2" stroke-linecap="round"/>
+<line x1="24.5" y1="15.5" x2="27" y2="15.5" stroke="#fcd34d" stroke-width="2" stroke-linecap="round"/>
+<line x1="12.5" y1="25.5" x2="19.5" y2="25.5" stroke="#fcd34d" stroke-width="2" stroke-linecap="round"/>`,
+    { width: 32, height: 32, viewBox: "0 0 32 32" },
+  );
+}
+
 function favicon() {
   return svg(
     "Truco",
@@ -133,6 +151,7 @@ function write(path, content) {
 
 for (const suit of Object.keys(SUITS)) write(`suits/${suit}.svg`, suitIcon(suit));
 write("ui/fosforo.svg", fosforo());
+write("ui/bot.svg", bot());
 write("favicon.svg", favicon());
 write("logo.svg", logo());
-console.log("wrote suit icons, fósforo, favicon and logo");
+console.log("wrote suit icons, fósforo, bot, favicon and logo");

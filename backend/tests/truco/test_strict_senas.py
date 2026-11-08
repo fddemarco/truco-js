@@ -36,14 +36,23 @@ def test_only_the_player_to_act_can_signal():
 def test_teammates_notice_and_rivals_detect_by_chance():
     h = redonda(1, 0)
     h.apply(Action.signal(Sena.TRES))
-    assert [s.sena for s in h.senas_seen(2)] == [Sena.TRES]
+    assert [s.sena for s in h.senas_seen(4)] == [Sena.TRES]
     assert h.senas_seen(4)[0].seat == 0
     assert all(h.senas_seen(rival) == [] for rival in (1, 3, 5))
 
     h = redonda(0, 1)
     h.apply(Action.signal(Sena.TRES))
     assert h.senas_seen(2) == [] and h.senas_seen(4) == []
-    assert all(len(h.senas_seen(rival)) == 1 for rival in (1, 3, 5))
+    assert all(len(h.senas_seen(rival)) == 1 for rival in (3, 5))
+
+
+def test_only_faces_across_the_table_are_seen():
+    # 14.4 and the 3-3 layout: seat 0 sits with 1 and 2; 3, 4 and 5 are across.
+    h = redonda(1, 1)
+    h.apply(Action.signal(Sena.TRES))
+    assert h.senas_seen(2) == []  # teammate on the same side
+    assert h.senas_seen(1) == []  # rival on the same side
+    assert all(len(h.senas_seen(s)) == 1 for s in (3, 4, 5))
 
 
 def test_notice_rate_follows_the_configured_probability():
@@ -51,7 +60,7 @@ def test_notice_rate_follows_the_configured_probability():
     for seed in range(500):
         h = redonda(0.8, 0.15, seed)
         h.apply(Action.signal(Sena.DOS))
-        noticed += len(h.senas_seen(2))
+        noticed += len(h.senas_seen(4))
     assert 0.74 < noticed / 500 < 0.86
 
 
@@ -61,7 +70,7 @@ def test_sena_records_the_ronda():
         h.apply(Action.play(h.hands[h.to_act][0]))
     assert h.to_act == 0  # the 1 de espadas won the first ronda
     h.apply(Action.signal(Sena.TRES))
-    assert h.senas_seen(2)[0].ronda == 1
+    assert h.senas_seen(4)[0].ronda == 1
 
 
 def test_in_a_duelo_only_the_rival_can_see_it():

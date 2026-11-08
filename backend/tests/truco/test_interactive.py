@@ -44,6 +44,26 @@ def envido_won_by_seat_0_bluffing(apply) -> None:
         apply(Action(K.SON_BUENAS), seat)
 
 
+def test_a_silent_player_declares_once_their_team_is_behind():
+    # 11.4–11.6: seat 2 stays silent while seat 0 leads; seat 3 then takes the lead, so the turn
+    # comes back to seat 2. Their 31 ties seat 3's and wins, being closer to mano; seat 5,
+    # silent until then, must answer it.
+    h = redonda()
+    act(h, 0, K.ENVIDO)
+    act(h, 1, K.QUIERO)
+    h.apply(Action.declare(30), 0)
+    act(h, 1, K.SON_BUENAS)
+    assert h.to_act == 3  # seat 2's team leads: they stay silent
+    h.apply(Action.declare(31), 3)
+    act(h, 4, K.SON_BUENAS)
+    assert h.to_act == 2  # behind now, seat 2 gets to speak
+    h.apply(Action.declare(31), 2)
+    assert h.to_act == 5
+    h.apply(Action.declare(31), 5)  # a tie with seat 2, who is closer to mano
+    assert h.envido.winner_seat == 2 and h.points == [2, 0]
+    assert h.envido.tantos == {0: 30, 1: None, 3: 31, 4: None, 2: 31, 5: 31}
+
+
 # --- cantos fuera de turno (13.4–13.6) ---------------------------------------------------
 
 
@@ -54,6 +74,29 @@ def test_out_of_turn_canto_does_not_block_and_lapses_when_a_card_is_played():
     h.apply(Action.play(HANDS[0][0]), 0)
     assert h.pending == [] and h.envido_calls == []
     assert K.ENVIDO in kinds(h, 1)  # the envido can be sung again
+
+
+def test_raise_by_the_player_in_turn_blocks_play_and_does_not_lapse():
+    # 13.2/13.5: seat 3 sings envido out of turn; seat 0, in turn, raises. The raise is a
+    # canto en turno: seat 0 can't play (and so make the chain lapse) until it is answered.
+    h = redonda()
+    act(h, 3, K.ENVIDO)
+    act(h, 0, K.REAL_ENVIDO)
+    assert K.PLAY not in kinds(h, 0)
+    assert h.envido_calls == ["envido", "real_envido"]
+    act(h, 1, K.QUIERO)
+    assert h.declaration is not None  # the envido goes on to the declarations
+
+
+def test_truco_raise_by_the_player_in_turn_blocks_play():
+    # 13.2: seat 3 sings truco out of turn; seat 0, in turn, answers retruco (accepting the
+    # truco). The retruco is sung in turn, so it must be answered before seat 0 plays.
+    h = redonda()
+    act(h, 3, K.TRUCO)
+    act(h, 0, K.RETRUCO)
+    assert K.PLAY not in kinds(h, 0)
+    act(h, 1, K.QUIERO)
+    assert h.truco_accepted == 2 and K.PLAY in kinds(h, 0)
 
 
 def test_out_of_turn_canto_can_be_answered_by_any_rival():
@@ -252,6 +295,35 @@ def test_duelo_reclamo_open_until_the_next_duelo_starts():
         assert p.duels[0].claims == [(3, upheld)]
         assert p.duels[0].points == [0, 3]
         assert p.current.scores == (0, 3)  # the next duelo was dealt with the right score
+
+
+def test_rejected_duelo_reclamo_keeps_the_next_duelo():
+    # 15.9: a reclamo that fails moves no points, so the duelo waiting to start stays as it is.
+    p = PicaPicaHand(HANDS, mano=0, config=INTERACTIVE)
+    act(p, 0, K.ENVIDO)
+    act(p, 3, K.QUIERO)
+    p.apply(Action.declare(4), 0)
+    p.apply(Action.declare(31), 3)  # seat 3 has 31: a truthful winner
+    act(p, 0, K.MAZO)  # the winner keeps their cards, so they can still show them
+    waiting = p.current
+    act(p, 0, K.RECLAMAR)
+    assert p.duels[0].claims == [(0, False)]
+    assert p.current is waiting
+
+
+def test_duelo_reclamos_close_even_after_a_conceded_duelo():
+    # 15.5/15.9: seat 1 put their cards in the mazo, so duelo 2 never starts; once duelo 3
+    # starts, the reclamos on duelo 1 are closed too.
+    p = PicaPicaHand(HANDS, mano=0, config=INTERACTIVE)
+    act(p, 1, K.MAZO)  # a future duelo's player concedes
+    act(p, 0, K.ENVIDO)
+    act(p, 3, K.QUIERO)
+    p.apply(Action.declare(33), 0)
+    act(p, 3, K.SON_BUENAS)
+    act(p, 0, K.MAZO)
+    assert p.duel_number == 3 and p.duels[0].claims_open
+    p.apply(Action.play(HANDS[2][0]), 2)
+    assert not p.duels[0].claims_open
 
 
 # --- Match: reclamos between manos, señas and interference ------------------------------

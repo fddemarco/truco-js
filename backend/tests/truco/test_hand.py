@@ -1,7 +1,6 @@
 import pytest
 
 from app.truco.cards import Card, Suit
-from app.truco.envido import said_in_order
 from app.truco.hand import Action, ActionKind, Contest, IllegalAction, PicaPicaHand
 from app.truco.table import order_from
 
@@ -128,6 +127,15 @@ def test_envido_querido_highest_tanto_wins():
     assert h.envido.winner_seat == 1  # 31, the first of the 31s from mano
     assert h.points == [0, 2]
     assert K.ENVIDO not in kinds(h)
+
+
+def test_strict_envido_reveals_only_what_the_table_hears():
+    # 11.4/11.5: from mano, a rival only declares to beat the best so far, else "son buenas"
+    # (None); teammates of the best stay silent. Tantos kept quiet are never revealed.
+    h = redonda()
+    act(h, K.ENVIDO)
+    act(h, K.QUIERO)
+    assert h.envido.tantos == {0: 4, 1: 31, 2: None, 4: None}
 
 
 def test_envido_no_querido():
@@ -281,15 +289,7 @@ def test_pica_pica_stops_when_a_team_reaches_30():
     assert len(p.duels) == 2
 
 
-# --- what the table hears of an envido, and what it is worth (both modes use the same) ---
-
-
-def test_said_in_order_only_says_what_beats_the_best_so_far():
-    # 11.4/11.5/11.6: mano declares; rivals declare only to beat it, else son buenas (a tie
-    # loses to mano); teammates of the best stay silent.
-    tantos = {0: 4, 1: 31, 2: 24, 3: 31, 4: 25, 5: 30}
-    assert said_in_order(list(range(6)), tantos) == {0: 4, 1: 31, 2: None, 4: None}
-    assert said_in_order([0, 1], {0: 27, 1: 27}) == {0: 27, 1: None}
+# --- what an envido canto is worth while it waits (both modes) ---
 
 
 def test_envido_stakes_while_the_canto_waits():

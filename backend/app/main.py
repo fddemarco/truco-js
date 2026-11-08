@@ -4,15 +4,16 @@ from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.db import init_db
 from app.observability import RequestContextMiddleware, configure_logging, log
 from app.routers import bots, games, health, logs
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    init_db()
-    log.info("app.started", data_dir=str(get_settings().data_dir))
+    # Nothing to start: the database is set up on first use (app/db.py) and the table deals
+    # on requests (app/games/registry.py), so serverless runtimes need no lifespan.
+    settings = get_settings()
+    log.info("app.started", database="url" if settings.database_url else "sqlite")
     yield
     log.info("app.stopped")
 

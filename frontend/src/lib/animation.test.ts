@@ -9,6 +9,9 @@ const ev = (kind: string, extra: Partial<GameEvent> = {}): GameEvent => ({
   number: null,
   points: null,
   upheld: null,
+  stakes: null,
+  tantos: null,
+  hand_kind: null,
   ...extra,
 });
 

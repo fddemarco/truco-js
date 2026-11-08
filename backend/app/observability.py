@@ -79,12 +79,16 @@ def configure_logging(settings: Settings) -> None:
     handlers: list[logging.Handler] = [console]
     if settings.log_file:
         path = settings.data_dir / "logs" / "app.jsonl"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        file = logging.handlers.RotatingFileHandler(
-            path, maxBytes=5_000_000, backupCount=3, encoding="utf-8"
-        )
-        file.setFormatter(formatter(structlog.processors.JSONRenderer()))
-        handlers.append(file)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            file = logging.handlers.RotatingFileHandler(
+                path, maxBytes=5_000_000, backupCount=3, encoding="utf-8"
+            )
+        except OSError as e:  # a read-only filesystem (serverless): the console is enough
+            print(f"log file disabled: {e}", file=sys.stderr)
+        else:
+            file.setFormatter(formatter(structlog.processors.JSONRenderer()))
+            handlers.append(file)
 
     root = logging.getLogger()
     root.handlers = handlers

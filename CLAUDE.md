@@ -9,12 +9,14 @@ Stack:
 ## Architecture
 
 ```
-UI ──/api (vite proxy)──▶ FastAPI ──▶ SQLite  data/app.sqlite   (SQLModel)
+UI ──/api (vite proxy | Vercel rewrite)──▶ FastAPI ──▶ SQLite data/app.sqlite | Postgres on Vercel (SQLModel)
                              │
                              ├─ app/truco/   pure-Python game engine + tournament logic
                              ├─ app/bots/    configurable local bot strategies (strict + interactive)
-                             └─ app/games/   in-memory game sessions: seats, tokens, bots, per-seat views
+                             └─ app/games/   game sessions (stateless: loaded and saved per request): seats, tokens, bots, per-seat views, the deal
 ```
+
+- **The API is stateless** so it runs as Vercel serverless functions: no game is kept in memory, nothing runs between requests (the table deals when a poll finds its wait over), and clients poll. Don't add background threads, in-process caches of game state, streams or local-disk state. See `backend/CLAUDE.md`.
 
 - **Two rule modes**, chosen when a tournament or one-off game starts: strict (restricted moves, for the RL bot) and interactive (simulated real table for multiplayer, engine as referee). See `backend/CLAUDE.md`.
 - **The rules are the spec.** `docs/reglamento-truco-sepica.md` is the official Se Pica TSA reglamento (Spanish). Engine code cites rule numbers (e.g. `(15.1)`). Check the rule before changing behaviour.
@@ -28,7 +30,7 @@ UI ──/api (vite proxy)──▶ FastAPI ──▶ SQLite  data/app.sqlite   
 | Task | Command |
 |---|---|
 | Install deps | `make install` |
-| Run API (:8000) + UI (:5173) | `make dev` |
+| Run API (:8000) + UI (:5173) | `make dev` (`HOST=0.0.0.0 make dev` to play online across the network) |
 | All tests | `make test` (`make test-api` / `make test-web`) |
 | Lint + typecheck | `make lint` |
 | Format | `make fmt` |
@@ -36,9 +38,15 @@ UI ──/api (vite proxy)──▶ FastAPI ──▶ SQLite  data/app.sqlite   
 | Process an avatar gallery | `uv run tools/art/avatars.py sheet <character> <gallery>` |
 | Edit a seña (mirror, lift, patch, SVG overlay, realign) | `uv run tools/art/avatars.py <command> ...` (`--help` for each) |
 | Import approved art | `cd frontend && pnpm import-art [--partial]` |
+| Regenerate `requirements.txt` (Vercel) after `uv add`/`uv remove` | `make gen-reqs` (`make lint` fails while it's stale) |
+| Run the backend tests against Postgres | `cd backend && TEST_DATABASE_URL=postgresql://... uv run pytest` (drops its tables) |
 | Read the logs (backend + frontend, JSON lines) | `tail -f data/logs/app.jsonl` (`LOG_LEVEL=DEBUG` adds polling; browser debug entries such as beats stay in `window.__trucoLogs`) |
 
 Run Python through uv (`cd backend && uv run ...`) and JS through pnpm (`cd frontend && pnpm ...`). Never use pip or npm.
+
+## Deploy (Vercel)
+
+One Vercel project from the repo root (`vercel.json`): the SPA is built from `frontend/` to static files, and `api/index.py` serves the FastAPI app as a Python function for every `/api/*` request. Python dependencies come from the root `requirements.txt` (exported from `backend/uv.lock`), the Python version from `.python-version`. Env vars in Vercel: `DATABASE_URL` (the Neon integration's pooled Postgres URL), `LOG_FILE=false`, `LOG_FORMAT=json`. Tables are created on first use; there are no migrations, so a new NOT NULL column needs its table dropped (locally: `make clean`).
 
 ## Rules
 

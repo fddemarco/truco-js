@@ -69,8 +69,7 @@ def choose_action(
 
     if contest.phase is Phase.DECLARING:
         assert contest.declaration is not None
-        best = contest.declaration.best_number
-        if K.SON_BUENAS in kinds and my_tanto <= best:
+        if K.SON_BUENAS in kinds and not contest.declaration.beats(seat, my_tanto):
             return Action(K.SON_BUENAS)
         return Action.declare(my_tanto)
     if K.ACEPTAR_PERDON in kinds:

@@ -4,21 +4,24 @@ import {
   activeSenas,
   actionLabel,
   buttonActions,
+  forgetToken,
+  loadHost,
   loadTokens,
+  pruneGames,
+  saveHost,
   saveToken,
+  GAME_KEEP_MS,
   across,
   besides,
   neighbours,
   pendingCanto,
   prompt,
   drawTeamNames,
-  envidoBoard,
   fanLayout,
   fanWidth,
   leadingCards,
   nextDeal,
   tally,
-  DEAL_WAIT_MS,
   seatsAcross,
   status,
 } from "./game";
@@ -71,6 +74,35 @@ describe("tokens", () => {
     expect(loadTokens("g1")).toEqual({ 0: "a", 2: "b" });
     expect(loadTokens("other")).toEqual({});
   });
+
+  it("forgets a freed seat and keeps the host token beside the seats", () => {
+    saveToken("g2", 1, "a");
+    saveHost("g2", "h");
+    forgetToken("g2", 1);
+    expect(loadTokens("g2")).toEqual({});
+    expect(loadHost("g2")).toBe("h");
+  });
+
+  it("reads tokens saved before the host token", () => {
+    localStorage.setItem("game:old", JSON.stringify({ 3: "x" }));
+    expect(loadTokens("old")).toEqual({ 3: "x" });
+  });
+
+  it("prunes games not used for a week", () => {
+    localStorage.clear();
+    saveToken("recent", 0, "a");
+    saveToken("stale", 0, "b");
+    localStorage.setItem("game:legacy", JSON.stringify({ 0: "c" }));
+    localStorage.setItem("other", "kept");
+    const stale = JSON.parse(localStorage.getItem("game:stale")!);
+    localStorage.setItem("game:stale", JSON.stringify({ ...stale, at: 1 }));
+    expect(pruneGames(Date.now(), GAME_KEEP_MS)).toBe(1);
+    expect(loadTokens("stale")).toEqual({});
+    expect(loadTokens("recent")).toEqual({ 0: "a" });
+    expect(loadTokens("legacy")).toEqual({ 0: "c" }); // its clock starts now
+    expect(localStorage.getItem("other")).toBe("kept");
+    expect(pruneGames(Date.now() + GAME_KEEP_MS + 1)).toBe(2);
+  });
 });
 
 const act = (kind: GameAction["kind"]): GameAction => ({
@@ -103,39 +135,19 @@ function table(over: Partial<GameView> = {}): GameView {
 
 describe("nextDeal", () => {
   const between = (over: Partial<GameView> = {}) =>
-    table({
-      can_deal: true,
-      to_act: null,
-      dealer: 2,
-      mode: "strict",
-      seats: Array.from({ length: 6 }, (_, i) => ({
-        seat: i,
-        name: `P${i}`,
-        kind: i === 0 || i === 4 ? "human" : "bot",
-      })),
-      ...over,
-    } as Partial<GameView>);
+    table({ can_deal: true, to_act: null, deal_at: 50_000, cutter: 4, ...over });
 
-  it("lets the player to the dealer's left cut, on their device", () => {
-    expect(nextDeal(between({ dealer: 1 }), [0])).toEqual({
-      cutter: 0,
-      mine: true,
-      waitMs: DEAL_WAIT_MS.cut,
-    });
+  it("turns the server's deal time into this device's clock", () => {
+    expect(nextDeal(between(), [0], 1000)).toEqual({ cutter: 4, mine: false, endsAt: 49_000 });
   });
 
-  it("waits for a human cutter elsewhere, and deals after a short pause for a bot", () => {
-    expect(nextDeal(between({ dealer: 5 }), [0])).toMatchObject({ cutter: 4, mine: false });
-    expect(nextDeal(between({ dealer: 5 }), [0])?.waitMs).toBe(DEAL_WAIT_MS.humanCutter);
-    expect(nextDeal(between(), [0])).toMatchObject({ cutter: 1, waitMs: DEAL_WAIT_MS.strict });
-    const interactive = between({ mode: "interactive" });
-    expect(nextDeal(interactive, [0])?.waitMs).toBe(DEAL_WAIT_MS.interactive);
+  it("lets the cutter on this device cut", () => {
+    expect(nextDeal(between(), [0, 4], 0)?.mine).toBe(true);
   });
 
-  it("doesn't deal during a mano, after the partido, or for spectators", () => {
-    expect(nextDeal(between({ can_deal: false }), [0])).toBeNull();
-    expect(nextDeal(between({ result: { kind: "deportivo", winner: 0 } }), [0])).toBeNull();
-    expect(nextDeal(between(), [])).toBeNull();
+  it("has nothing to deal during a mano or after the partido", () => {
+    expect(nextDeal(between({ deal_at: null, cutter: null }), [0], 0)).toBeNull();
+    expect(nextDeal(between({ result: { kind: "deportivo", winner: 0 } }), [0], 0)).toBeNull();
   });
 });
 
@@ -285,47 +297,5 @@ describe("status", () => {
     });
     expect(s.truco).toEqual({ label: "Truco", state: "sung" });
     expect(pendingCanto(table())).toBeNull();
-  });
-});
-
-describe("envidoBoard", () => {
-  it("tells what quiero and no quiero are worth while the canto waits", () => {
-    const v = table({
-      envido_calls: ["envido"],
-      pending: [{ family: "envido", chanter: 3, in_turn: true, irregular: false }],
-      envido_stakes: { quiero: [2, 2], no_quiero: 1, team: 1 },
-    });
-    expect(envidoBoard(v)).toMatchObject({ kind: "stakes", chanter: 3, quiero: [2], noQuiero: 1 });
-    // a falta is worth what the winner lacks: one number per team
-    const falta = { ...v, envido_stakes: { quiero: [27, 20], no_quiero: 1, team: 1 } };
-    expect(envidoBoard(falta)).toMatchObject({ quiero: [27, 20] });
-  });
-
-  it("lists the numbers said in turn from mano, the first highest one best (11.4, 11.6)", () => {
-    const v = table({
-      phase: "declaring",
-      mano: 4,
-      to_act: 1,
-      envido_calls: ["envido"],
-      declarations: { 0: 28, 4: 28, 5: null },
-    });
-    expect(envidoBoard(v)).toEqual({
-      kind: "declaring",
-      label: "Envido",
-      next: 1,
-      said: [
-        { seat: 4, number: 28, best: true },
-        { seat: 5, number: null, best: false },
-        { seat: 0, number: 28, best: false },
-      ],
-    });
-  });
-
-  it("announces who won only while the result beat is on screen", () => {
-    const envido = { calls: ["envido"], accepted: true, team: 1, points: 2, winner_seat: 1 };
-    const v = table({ mano: 0, envido: { ...envido, tantos: { 0: 25, 1: 30 } } });
-    expect(envidoBoard(v)).toBeNull();
-    expect(envidoBoard(v, true)).toMatchObject({ kind: "result", winner: 1, points: 2 });
-    expect(envidoBoard(v, true)?.said.find((s) => s.best)?.seat).toBe(1);
   });
 });

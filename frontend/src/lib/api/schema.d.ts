@@ -140,7 +140,8 @@ export interface paths {
     };
     /**
      * Game View
-     * @description `look`: the seat the viewer's camera is on; only its señas are visible (14.4).
+     * @description The table as the seat of `X-Seat-Token` sees it (none: a spectator).
+     *     `look`: the seat the viewer's camera is on; only its señas are visible (14.4).
      *     `since`: the last step the client has; the view carries the steps after it.
      */
     get: operations["game_view_api_games__game_id__get"];
@@ -178,7 +179,10 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Deal */
+    /**
+     * Deal
+     * @description The cutter cuts: the next mano is dealt now instead of at `deal_at`.
+     */
     post: operations["deal_api_games__game_id__deal_post"];
     delete?: never;
     options?: never;
@@ -197,6 +201,26 @@ export interface paths {
     put?: never;
     /** Sena */
     post: operations["sena_api_games__game_id__sena_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/games/{game_id}/seats/{seat}/reset": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Reset Seat
+     * @description The host frees a human seat whose player lost their token; it can be joined again.
+     */
+    post: operations["reset_seat_api_games__game_id__seats__seat__reset_post"];
     delete?: never;
     options?: never;
     head?: never;
@@ -226,8 +250,6 @@ export interface components {
   schemas: {
     /** ActRequest */
     ActRequest: {
-      /** Token */
-      token: string;
       /** Look */
       look?: number | null;
       /** Since */
@@ -497,18 +519,6 @@ export interface components {
      * @enum {string}
      */
     EnvidoCall: "envido" | "real_envido" | "falta_envido";
-    /**
-     * EnvidoStakesView
-     * @description An envido canto waiting for an answer: what each answer is worth (Anexo B.2/B.3).
-     */
-    EnvidoStakesView: {
-      /** Quiero */
-      quiero: number[];
-      /** No Quiero */
-      no_quiero: number;
-      /** Team */
-      team: number;
-    };
     /** EnvidoView */
     EnvidoView: {
       /** Calls */
@@ -542,6 +552,12 @@ export interface components {
       points: number[] | null;
       /** Upheld */
       upheld: boolean | null;
+      /** Stakes */
+      stakes: number[] | null;
+      /** Tantos */
+      tantos: (number | null)[] | null;
+      /** Hand Kind */
+      hand_kind: string | null;
     };
     /** GameCreate */
     GameCreate: {
@@ -557,6 +573,8 @@ export interface components {
     GameCreated: {
       /** Id */
       id: string;
+      /** Host Token */
+      host_token: string;
     };
     /** GameView */
     GameView: {
@@ -632,7 +650,19 @@ export interface components {
        */
       truco_accepted: number;
       envido: components["schemas"]["EnvidoView"] | null;
-      envido_stakes: components["schemas"]["EnvidoStakesView"] | null;
+      /**
+       * Pies
+       * @default [
+       *       null,
+       *       null
+       *     ]
+       */
+      pies: (number | null)[];
+      /**
+       * Stats
+       * @default []
+       */
+      stats: components["schemas"]["StatView"][];
       /**
        * Declarations
        * @default {}
@@ -645,6 +675,10 @@ export interface components {
        * @default false
        */
       can_deal: boolean;
+      /** Deal At */
+      deal_at: number | null;
+      /** Cutter */
+      cutter: number | null;
       result: components["schemas"]["ResultView"] | null;
       /**
        * Events
@@ -706,6 +740,7 @@ export interface components {
        * @default
        */
       name?: string;
+      character?: components["schemas"]["Character"] | null;
     };
     /** Joined */
     Joined: {
@@ -827,6 +862,8 @@ export interface components {
       kind: "human" | "bot";
       /** Joined */
       joined: boolean;
+      /** Online */
+      online: boolean;
       /** In Play */
       in_play: boolean;
       /** Active */
@@ -852,8 +889,6 @@ export interface components {
       "sena_01" | "sena_02" | "sena_03" | "sena_04" | "sena_05" | "sena_06" | "sena_07" | "sena_12";
     /** SenaRequest */
     SenaRequest: {
-      /** Token */
-      token: string;
       /** Look */
       look?: number | null;
       /** Since */
@@ -887,6 +922,25 @@ export interface components {
       duration_ms: number;
     };
     /**
+     * StatView
+     * @description A fun fact about the partido, for the end screen (see app/games/stats.py).
+     */
+    StatView: {
+      /** Key */
+      key: string;
+      /** Seat */
+      seat: number | null;
+      /** Value */
+      value: number | null;
+      /** Mano */
+      mano: number | null;
+      /**
+       * Cards
+       * @default []
+       */
+      cards: components["schemas"]["CardModel"][];
+    };
+    /**
      * StepView
      * @description One move (an action or a deal) and what it set off, with the table right after it as
      *     the viewer saw it (without señas, which are live).
@@ -900,10 +954,11 @@ export interface components {
       events: components["schemas"]["EventView"][];
       view: components["schemas"]["GameView"];
     };
-    /** TokenRequest */
+    /**
+     * TokenRequest
+     * @description A move's view options; the seat token goes in the X-Seat-Token header.
+     */
     TokenRequest: {
-      /** Token */
-      token: string;
       /** Look */
       look?: number | null;
       /** Since */
@@ -1179,11 +1234,12 @@ export interface operations {
   game_view_api_games__game_id__get: {
     parameters: {
       query?: {
-        token?: string | null;
         look?: number | null;
         since?: number | null;
       };
-      header?: never;
+      header?: {
+        "X-Seat-Token"?: string | null;
+      };
       path: {
         game_id: string;
       };
@@ -1214,7 +1270,9 @@ export interface operations {
   act_api_games__game_id__act_post: {
     parameters: {
       query?: never;
-      header?: never;
+      header: {
+        "X-Seat-Token": string;
+      };
       path: {
         game_id: string;
       };
@@ -1249,7 +1307,9 @@ export interface operations {
   deal_api_games__game_id__deal_post: {
     parameters: {
       query?: never;
-      header?: never;
+      header: {
+        "X-Seat-Token": string;
+      };
       path: {
         game_id: string;
       };
@@ -1284,7 +1344,9 @@ export interface operations {
   sena_api_games__game_id__sena_post: {
     parameters: {
       query?: never;
-      header?: never;
+      header: {
+        "X-Seat-Token": string;
+      };
       path: {
         game_id: string;
       };
@@ -1295,6 +1357,40 @@ export interface operations {
         "application/json": components["schemas"]["SenaRequest"];
       };
     };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GameView"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  reset_seat_api_games__game_id__seats__seat__reset_post: {
+    parameters: {
+      query?: never;
+      header: {
+        "X-Host-Token": string;
+      };
+      path: {
+        game_id: string;
+        seat: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
     responses: {
       /** @description Successful Response */
       200: {

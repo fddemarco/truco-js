@@ -3,6 +3,9 @@ import { cardName, trucoRank, type Suit } from "$lib/cards";
 import type { MessageKey } from "$lib/i18n.svelte";
 
 /** Cantos and answers are game terms: Spanish in every locale. */
+/** The modality of a mano (§2). Game terms: Spanish in every locale. */
+export const HAND_KINDS: Record<string, string> = { redonda: "Redonda", pica_pica: "Pica-pica" };
+
 export const ACTION_LABELS: Record<ActionKind, string> = {
   jugar: "Jugar",
   envido: "Envido",
@@ -54,30 +57,22 @@ export function besides(viewer: number): number[] {
   return [first, first + 1, first + 2].filter((s) => s !== viewer);
 }
 
-/** How long the table waits before dealing the next mano (ms). */
-export const DEAL_WAIT_MS = { strict: 2000, interactive: 2000, cut: 8000, humanCutter: 10000 };
-
 /**
- * The next deal, once a mano is over: who cuts and how long this device waits. The cut is made
- * by the player to the dealer's left (the dealer deals to the right, 5.5). It has no effect on
- * the (random) deal: it is the moment the cutter's device asks for it.
- * - The cutter is on this device: show "Cortar"; cut by itself after `cut` ms.
- * - The cutter is a human elsewhere: give them time, then deal anyway (`humanCutter`).
- * - The cutter is a bot: deal after a short pause to read the result.
+ * The next deal, once a mano is over. The server deals by itself at `deal_at` (its clock; the
+ * offset turns it into this device's); the cutter, the player to the dealer's left (5.5), may
+ * cut sooner. `mine`: the cutter is on this device, so it shows "Cortar".
  */
 export function nextDeal(
   view: GameView,
   mySeats: number[],
-): { cutter: number; mine: boolean; waitMs: number } | null {
-  if (!view.can_deal || view.result || !mySeats.length) return null;
-  const cutter = (view.dealer + 5) % 6;
-  const mine = mySeats.includes(cutter);
-  const waitMs = mine
-    ? DEAL_WAIT_MS.cut
-    : view.seats[cutter].kind === "human"
-      ? DEAL_WAIT_MS.humanCutter
-      : DEAL_WAIT_MS[view.mode];
-  return { cutter, mine, waitMs };
+  offset: number,
+): { cutter: number; mine: boolean; endsAt: number } | null {
+  if (view.deal_at == null || view.cutter == null || view.result) return null;
+  return {
+    cutter: view.cutter,
+    mine: mySeats.includes(view.cutter),
+    endsAt: view.deal_at - offset,
+  };
 }
 
 /**
@@ -291,86 +286,84 @@ export function status(view: GameView): TableStatus {
 }
 
 // --- seat tokens, per browser -------------------------------------------------------------
+// One entry per game: the seats this browser holds, the host token if it created the game,
+// and when it was last used (old entries are pruned).
 
-const tokenKey = (gameId: string) => `game:${gameId}`;
+const GAME_PREFIX = "game:";
+export const GAME_KEEP_MS = 7 * 24 * 3600 * 1000;
 
-export function loadTokens(gameId: string): Record<number, string> {
+interface StoredGame {
+  seats: Record<number, string>;
+  host?: string;
+  at: number;
+}
+
+function readGame(key: string): StoredGame | null {
   try {
-    return JSON.parse(localStorage.getItem(tokenKey(gameId)) ?? "{}");
+    const raw = localStorage.getItem(key);
+    if (raw === null) return null;
+    const data = JSON.parse(raw);
+    if (data && typeof data === "object" && "seats" in data) return data as StoredGame;
+    return { seats: data ?? {}, at: 0 }; // before the host token: just the seats
   } catch {
-    return {};
+    return null;
   }
 }
 
-export function saveToken(gameId: string, seat: number, token: string): void {
+function writeGame(gameId: string, update: (game: StoredGame) => void): void {
+  const game = readGame(GAME_PREFIX + gameId) ?? { seats: {}, at: 0 };
+  update(game);
+  game.at = Date.now();
   try {
-    localStorage.setItem(
-      tokenKey(gameId),
-      JSON.stringify({ ...loadTokens(gameId), [seat]: token }),
-    );
+    localStorage.setItem(GAME_PREFIX + gameId, JSON.stringify(game));
   } catch {
     // Storage unavailable: the token lives only in this page.
   }
 }
 
-/** What the table knows of the envido right now, for everyone (players and spectators). */
-export type EnvidoBoard = {
-  label: string;
-  /** Each number said in turn from mano (null: son buenas), the best one marked. */
-  said: { seat: number; number: number | null; best: boolean }[];
-} & (
-  | { kind: "stakes"; chanter: number | null; quiero: number[]; noQuiero: number }
-  | { kind: "declaring"; next: number | null }
-  | { kind: "result"; winner: number | null; team: number; points: number }
-);
+export function loadTokens(gameId: string): Record<number, string> {
+  return { ...(readGame(GAME_PREFIX + gameId)?.seats ?? {}) };
+}
 
-/**
- * The envido panel: while a canto waits, what quiero and no quiero are worth (one number, or
- * one per team when they differ, as a falta can); while declaring, the numbers so far (11.4);
- * while its result is announced, who won it and with what. Null when there is nothing to tell.
- */
-export function envidoBoard(view: GameView, announcing = false): EnvidoBoard | null {
-  const calls = view.envido?.calls ?? view.envido_calls;
-  const label = calls.map((c) => ACTION_LABELS[c as ActionKind] ?? c).join(" + ");
-  const fromMano = (seat: number) => (seat - (view.mano ?? 0) + 6) % 6;
-  const said = (numbers: Record<string, number | null>) => {
-    const rows = Object.entries(numbers)
-      .map(([seat, number]) => ({ seat: Number(seat), number }))
-      .sort((a, b) => fromMano(a.seat) - fromMano(b.seat));
-    // The first highest number wins: a tie goes to whoever is closer to mano (11.6).
-    let best: number | null = null;
-    for (const r of rows) {
-      if (r.number !== null && (best === null || r.number > (rows[best].number ?? -1)))
-        best = rows.indexOf(r);
+export function saveToken(gameId: string, seat: number, token: string): void {
+  writeGame(gameId, (g) => (g.seats[seat] = token));
+}
+
+/** The seat was freed by the host: its token no longer works. */
+export function forgetToken(gameId: string, seat: number): void {
+  writeGame(gameId, (g) => delete g.seats[seat]);
+}
+
+export function loadHost(gameId: string): string | null {
+  return readGame(GAME_PREFIX + gameId)?.host ?? null;
+}
+
+export function saveHost(gameId: string, token: string): void {
+  writeGame(gameId, (g) => (g.host = token));
+}
+
+/** Mark a game as in use, so it isn't pruned. */
+export function touchGame(gameId: string): void {
+  if (readGame(GAME_PREFIX + gameId)) writeGame(gameId, () => {});
+}
+
+/** Forget the games not used for `keepMs`; how many were dropped. */
+export function pruneGames(now = Date.now(), keepMs = GAME_KEEP_MS): number {
+  let dropped = 0;
+  try {
+    const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i));
+    for (const key of keys) {
+      if (!key?.startsWith(GAME_PREFIX)) continue;
+      const game = readGame(key);
+      if (game && game.at === 0) {
+        writeGame(key.slice(GAME_PREFIX.length), () => {}); // older format: its clock starts now
+      } else if (!game || game.at < now - keepMs) {
+        localStorage.removeItem(key);
+        dropped++;
+      }
     }
-    return rows.map((r, i) => ({ ...r, best: i === best }));
-  };
-  const stakes = view.envido_stakes;
-  if (stakes) {
-    const [a, b] = stakes.quiero;
-    const chanter = view.pending.find((p) => p.family === "envido")?.chanter ?? null;
-    return {
-      kind: "stakes",
-      label,
-      said: [],
-      chanter,
-      quiero: a === b ? [a] : stakes.quiero,
-      noQuiero: stakes.no_quiero,
-    };
+  } catch {
+    // Storage unavailable: nothing to prune.
   }
-  if (view.phase === "declaring") {
-    return { kind: "declaring", label, said: said(view.declarations), next: view.to_act ?? null };
-  }
-  if (announcing && view.envido) {
-    const e = view.envido;
-    return {
-      kind: "result",
-      label,
-      said: said(e.tantos),
-      winner: e.winner_seat ?? null,
-      team: e.team,
-      points: e.points,
-    };
-  }
-  return null;
+  return dropped;
 }

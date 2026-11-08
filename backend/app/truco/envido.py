@@ -58,25 +58,40 @@ def provable_tantos(cards: Sequence[Card]) -> set[int]:
 VALID_DECLARATIONS = tuple(range(0, 8)) + tuple(range(20, 34))
 
 
-def said_in_order(order: Sequence[int], tantos: Mapping[int, int]) -> dict[int, int | None]:
-    """What each player would say at the table, in turn from mano (11.4, 11.5).
+def said_in_order(
+    order: Sequence[int], tantos: Mapping[int, int]
+) -> tuple[dict[int, int | None], int]:
+    """What each player would say at the table, in turn from mano, and who wins (11.4–11.6).
 
-    The first declares; a rival declares only to beat the best number so far, else says "son
-    buenas" (None; a tie loses to whoever is closer to mano, 11.6); teammates of the best stay
-    silent. Strict mode resolves the envido from the real tantos, and this is what the table
-    hears of it, so nobody learns a tanto that would not have been said.
+    The first declares. A player whose team leads stays silent; otherwise they declare if they
+    beat the best number so far (a tie goes to whoever is closer to mano, 11.6), else say "son
+    buenas" (None). A player who stayed silent speaks when the turn comes round again with their
+    team behind, so the winner is the real best tanto. Strict mode resolves the envido from the
+    real tantos, and this is what the table hears of it: a tanto kept quiet is never revealed.
     """
+    position = {seat: i for i, seat in enumerate(order)}
+
+    def beats(seat: int, best: int) -> bool:
+        if tantos[seat] != tantos[best]:
+            return tantos[seat] > tantos[best]
+        return position[seat] < position[best]
+
     said: dict[int, int | None] = {}
-    best: int | None = None
-    for seat in order:
-        if best is not None and team_of(seat) == team_of(best):
-            continue
-        if best is None or tantos[seat] > tantos[best]:
-            said[seat] = tantos[seat]
-            best = seat
-        else:
-            said[seat] = None
-    return said
+    best = order[0]
+    said[best] = tantos[best]
+    spoke = True
+    while spoke:
+        spoke = False
+        for seat in order:
+            if seat in said or team_of(seat) == team_of(best):
+                continue
+            spoke = True
+            if beats(seat, best):
+                said[seat] = tantos[seat]
+                best = seat
+            else:
+                said[seat] = None
+    return said, best
 
 
 def reglamento_envido_points(calls: Sequence[EnvidoCall]) -> int:

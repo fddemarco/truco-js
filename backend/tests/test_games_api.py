@@ -1,4 +1,5 @@
 from app.bots.settings import BotSettings
+from app.games import registry
 from app.truco.cards import Card, Suit
 from app.truco.envido import tanto
 
@@ -27,15 +28,35 @@ def join(client, game, seat, name="") -> str:
     return res.json()["token"]
 
 
-def deal(client, game, token) -> dict:
-    res = client.post(f"/api/games/{game}/deal", json={"token": token})
-    assert res.status_code == 200, res.text
-    return res.json()
+def h(token: str | None) -> dict:
+    return {"X-Seat-Token": token} if token else {}
+
+
+def next_mano(client, game, token=None, since=None) -> dict:
+    """The table deals once its wait is over (here, right away; the request may also find the
+    wait over by itself and deal first)."""
+    before = registry.load(game).deal_step
+
+    def deal_once(g) -> int | None:
+        if g.deal_step == before and g.deal_at is not None:
+            g.tick(g.deal_at)
+        return g.deal_step
+
+    assert registry.run(game, deal_once) != before, "nothing to deal"
+    params = {"since": since} if since is not None else {}
+    return client.get(f"/api/games/{game}", headers=h(token), params=params).json()
+
+
+def deal(client, game, token=None) -> dict:
+    return next_mano(client, game, token)
+
+
+def post(client, game, path, token, body=None):
+    return client.post(f"/api/games/{game}/{path}", headers=h(token), json=body or {})
 
 
 def view(client, game, token=None) -> dict:
-    params = {"token": token} if token else {}
-    return client.get(f"/api/games/{game}", params=params).json()
+    return client.get(f"/api/games/{game}", headers=h(token)).json()
 
 
 def my_turn(client, game, token) -> dict:
@@ -49,7 +70,7 @@ def my_turn(client, game, token) -> dict:
         if v["to_act"] == v["me"]:
             return v
         assert v["can_deal"], "bots should have played until it is our turn"
-        v = client.post(f"/api/games/{game}/deal", json={"token": token}).json()
+        v = next_mano(client, game, token)
     raise AssertionError("never our turn")
 
 
@@ -67,11 +88,11 @@ def play_until_the_end(client, game, token) -> dict:
         if v["result"]:
             return v
         if v["can_deal"]:
-            v = client.post(f"/api/games/{game}/deal", json={"token": token}).json()
+            v = next_mano(client, game, token)
             continue
         assert v["to_act"] == v["me"], "bots should have played until it is our turn"
         res = client.post(
-            f"/api/games/{game}/act", json={"token": token, "action": pick(v["actions"])}
+            f"/api/games/{game}/act", headers=h(token), json={"action": pick(v["actions"])}
         )
         assert res.status_code == 200, res.text
         v = res.json()
@@ -103,7 +124,7 @@ def test_game_waits_for_every_human_seat(client):
     game = create(client, [HUMAN, HUMAN] + [BOT] * 4)
     first = join(client, game, 0, "Ana")
     assert not view(client, game, first)["started"]
-    bad = client.post(f"/api/games/{game}/act", json={"token": first, "action": {"kind": "quiero"}})
+    bad = post(client, game, "act", first, {"action": {"kind": "quiero"}})
     assert bad.status_code == 400
     second = join(client, game, 1, "Beto")
     started = view(client, game, first)
@@ -130,7 +151,7 @@ def test_unknown_game_or_token(client):
     assert client.get("/api/games/nope").status_code == 404
     game = create(client, [HUMAN] + [BOT] * 5)
     join(client, game, 0)
-    assert client.get(f"/api/games/{game}", params={"token": "x"}).status_code == 403
+    assert client.get(f"/api/games/{game}", headers=h("x")).status_code == 403
 
 
 def test_illegal_move_is_rejected(client):
@@ -146,7 +167,8 @@ def test_illegal_move_is_rejected(client):
     )
     res = client.post(
         f"/api/games/{game}/act",
-        json={"token": token, "action": {"kind": "jugar", "card": other}},
+        headers=h(token),
+        json={"action": {"kind": "jugar", "card": other}},
     )
     assert res.status_code == 400
 
@@ -158,13 +180,13 @@ def test_bots_answer_right_away(client):
     v = view(client, game, token)
     while v["to_act"] != 0 or not any(a["kind"] == "truco" for a in v["actions"]):
         if v["can_deal"]:
-            v = client.post(f"/api/games/{game}/deal", json={"token": token}).json()
+            v = next_mano(client, game, token)
         else:
             v = client.post(
-                f"/api/games/{game}/act", json={"token": token, "action": pick(v["actions"])}
+                f"/api/games/{game}/act", headers=h(token), json={"action": pick(v["actions"])}
             ).json()
     v = client.post(
-        f"/api/games/{game}/act", json={"token": token, "action": {"kind": "truco"}}
+        f"/api/games/{game}/act", headers=h(token), json={"action": {"kind": "truco"}}
     ).json()
     answered = [e for e in v["events"] if e["kind"] in ("quiero", "no_quiero")]
     assert answered and answered[-1]["seat"] % 2 == 1
@@ -191,23 +213,23 @@ def test_senas_only_in_interactive_mode(client):
     strict = create(client, [HUMAN] + [BOT] * 5)
     token = join(client, strict, 0)
     assert (
-        client.post(f"/api/games/{strict}/sena", json={"token": token, **sena}).status_code == 400
+        client.post(f"/api/games/{strict}/sena", headers=h(token), json={**sena}).status_code == 400
     )
 
     game = create(client, [HUMAN] + [BOT] * 5, mode="interactive")
     token = join(client, game, 0)
     my_turn(client, game, token)  # señas need a mano in progress
-    res = client.post(f"/api/games/{game}/sena", json={"token": token, **sena})
+    res = client.post(f"/api/games/{game}/sena", headers=h(token), json={**sena})
     assert res.status_code == 200, res.text
     assert res.json()["senas"][0]["seat"] == 0
     wrong = {**sena, "spot": "nariz"}
-    assert client.post(f"/api/games/{game}/sena", json={"token": token, **wrong}).status_code == 400
+    assert post(client, game, "sena", token, wrong).status_code == 400
     # C.3: 08–10 (figures) and 11 (no truco cards) are not valid señas.
     for gone in (
         {"sena": "sena_08", "spot": "muneca_derecha"},
         {"sena": "sena_11", "spot": "ojos"},
     ):
-        res = client.post(f"/api/games/{game}/sena", json={"token": token, **sena, **gone})
+        res = client.post(f"/api/games/{game}/sena", headers=h(token), json={**sena, **gone})
         assert res.status_code == 422
 
 
@@ -221,12 +243,13 @@ def test_a_seat_only_sees_the_senas_of_the_player_across_it_looks_at(client):
     sena = {"sena": "sena_05", "spot": "labio_inferior", "duration_ms": 3000}
 
     def make(seat):
-        res = client.post(f"/api/games/{game}/sena", json={"token": tokens[seat], **sena})
+        res = client.post(f"/api/games/{game}/sena", headers=h(tokens[seat]), json={**sena})
         return res.status_code
 
     def seen_by(seat, look=None):
-        params = {"token": tokens[seat]} | ({"look": look} if look is not None else {})
-        return {s["seat"] for s in client.get(f"/api/games/{game}", params=params).json()["senas"]}
+        params = {"look": look} if look is not None else {}
+        res = client.get(f"/api/games/{game}", headers=h(tokens[seat]), params=params)
+        return {s["seat"] for s in res.json()["senas"]}
 
     assert make(4) == 200 and make(1) == 200
     assert seen_by(0, look=4) == {4}
@@ -244,12 +267,12 @@ def test_played_cards_stay_on_the_table_per_seat(client):
     # Answer whatever blocks play (a truco from a bot...) until a card can be played.
     while not any(a["kind"] == "jugar" for a in v["actions"]):
         v = client.post(
-            f"/api/games/{game}/act", json={"token": token, "action": pick(v["actions"])}
+            f"/api/games/{game}/act", headers=h(token), json={"action": pick(v["actions"])}
         ).json()
         v = my_turn(client, game, token)
     before = {s["seat"]: len(s["played"]) for s in v["seats"]}
     card = next(a for a in v["actions"] if a["kind"] == "jugar")
-    v = client.post(f"/api/games/{game}/act", json={"token": token, "action": card}).json()
+    v = client.post(f"/api/games/{game}/act", headers=h(token), json={"action": card}).json()
     mine = v["seats"][0]["played"]
     assert len(mine) == before[0] + 1 and mine[-1] == card["card"]
     total = sum(len(s["played"]) for s in v["seats"])
@@ -267,10 +290,10 @@ def test_each_closed_ronda_is_announced(client):
         if v["result"]:
             break
         if v["can_deal"]:
-            v = client.post(f"/api/games/{game}/deal", json={"token": token}).json()
+            v = next_mano(client, game, token)
         else:
             v = client.post(
-                f"/api/games/{game}/act", json={"token": token, "action": pick(v["actions"])}
+                f"/api/games/{game}/act", headers=h(token), json={"action": pick(v["actions"])}
             ).json()
     rondas = [e for e in seen if e["kind"] == "ronda"]
     assert rondas  # a whole partido closes rondas
@@ -289,7 +312,7 @@ def test_view_carries_the_phase_of_the_mano_and_the_partido(client):
     assert (v["match_phase"], v["phase"]) == ("in_hand", "playing")
     seat = v["to_act"]
     res = client.post(
-        f"/api/games/{game}/act", json={"token": tokens[seat], "action": {"kind": "truco"}}
+        f"/api/games/{game}/act", headers=h(tokens[seat]), json={"action": {"kind": "truco"}}
     )
     v = res.json()
     assert v["phase"] == "answering" and v["to_act"] == (seat + 1) % 6
@@ -344,7 +367,7 @@ def test_each_move_is_a_step_with_the_table_as_the_viewer_saw_it(client):
     game = create(client, [HUMAN] + [BOT] * 5)
     token = join(client, game, 0)
     start = view(client, game, token)["step"]
-    v = client.post(f"/api/games/{game}/deal", json={"token": token, "since": start}).json()
+    v = next_mano(client, game, token, since=start)
     steps = v["steps"]
     assert steps[0]["events"][0]["kind"] == "reparto" and steps[0]["seat"] is None
     # The new hand is on the table from the deal on, not from the viewer's turn.
@@ -359,7 +382,7 @@ def test_each_move_is_a_step_with_the_table_as_the_viewer_saw_it(client):
             assert card in s["view"]["seats"][s["seat"]]["played"]
     assert steps[-1]["index"] == v["step"]
     # Asking again from the latest step: nothing new.
-    again = client.get(f"/api/games/{game}", params={"token": token, "since": v["step"]})
+    again = client.get(f"/api/games/{game}", headers=h(token), params={"since": v["step"]})
     assert again.json()["steps"] == []
 
 
@@ -374,7 +397,7 @@ def test_arriving_replays_the_mano_since_the_viewers_last_move(client):
         base = arrived["base"]  # the table waiting for this mano's deal
         assert base["can_deal"] and base["hand_number"] == arrived["hand_number"] - 1
     # After our own move, arriving again replays only what came after it.
-    res = client.post(f"/api/games/{game}/act", json={"token": token, "action": pick(v["actions"])})
+    res = post(client, game, "act", token, {"action": pick(v["actions"])})
     assert res.status_code == 200
     after = view(client, game, token)
     assert all(s["seat"] != 0 for s in after["steps"])
@@ -435,32 +458,124 @@ def test_view_tells_each_player_their_real_tanto(client):
     assert view(client, game)["my_tanto"] is None  # spectators see no tanto
 
 
-def test_strict_envido_is_told_as_the_table_hears_it(client):
-    # Strict resolves the envido from the real tantos; the table hears it in turn (11.4,
-    # 11.5): declarations, then who won it with which tanto, for every viewer.
+def test_envido_stakes_and_every_tanto_go_in_the_log(client):
+    # Every viewer's log says what an envido canto is worth before it is answered, and, once
+    # querido, the envido as the table heard it (strict: said in turn from the real tantos;
+    # a tanto that loses is "son buenas" and never revealed, 11.5).
     game = create(client, [HUMAN] + [BOT] * 5)
     token = join(client, game, 0)
-    v = view(client, game, token)
     seen_stakes = seen_result = False
+    v = view(client, game, token)
     for _ in range(3000):
         if v["result"] or (seen_stakes and seen_result):
             break
-        if v["envido_stakes"]:
-            stakes = v["envido_stakes"]
-            assert stakes["no_quiero"] >= 1 and min(stakes["quiero"]) >= 2
-            seen_stakes = True
-        events = v["events"]
-        for i, e in enumerate(events):
-            if e["kind"] == "envido_resuelto" and e["number"] is not None:
-                before = events[:i]
-                said = [b for b in before if b["kind"] in ("declarar", "son_buenas")]
-                assert any(b["seat"] == e["seat"] and b["number"] == e["number"] for b in said)
+        for e in view(client, game)["events"]:  # a spectator's log
+            if e["kind"] in ("envido", "real_envido", "falta_envido"):
+                assert e["stakes"] and len(e["stakes"]) == 3 and min(e["stakes"]) >= 1
+                seen_stakes = True
+            if e["kind"] == "envido_resuelto" and e["tantos"]:
+                said = [t for t in e["tantos"] if t is not None]
+                assert len(e["tantos"]) == 6 and said
+                assert e["number"] == e["tantos"][e["seat"]] == max(said)
                 seen_result = True
         if v["can_deal"]:
             v = deal(client, game, token)
             continue
         v = client.post(
-            f"/api/games/{game}/act", json={"token": token, "action": pick(v["actions"])}
+            f"/api/games/{game}/act", headers=h(token), json={"action": pick(v["actions"])}
         ).json()
-    assert seen_result, "no envido querido in a whole partido"
-    assert seen_stakes, "never asked to answer an envido"
+    assert seen_stakes and seen_result
+
+
+def test_each_team_has_its_pie(client):
+    # The pie (§2) is the last in the order; at the table each team also has its own, its last
+    # player. The official one stays in `pie`.
+    game = create(client, [HUMAN] + [BOT] * 5)
+    token = join(client, game, 0)
+    v = my_turn(client, game, token)
+    pies = v["pies"]
+    assert [p % 2 for p in pies] == [0, 1]
+    assert v["pie"] in pies
+
+
+def test_a_finished_partido_has_its_fun_facts(client):
+    game = create(client, [HUMAN] + [BOT] * 5)
+    token = join(client, game, 0)
+    assert view(client, game, token)["stats"] == []
+    end = play_until_the_end(client, game, token)
+    keys = {f["key"]: f for f in end["stats"]}
+    assert keys["manos"]["value"] >= 1
+    assert {"luckiest", "strongest_hand", "best_tanto"} <= set(keys)
+    assert len(keys["strongest_hand"]["cards"]) == 3
+
+
+def test_each_deal_says_its_modality(client):
+    # Mano redonda or pica-pica (§2), on the deal itself so the log keeps each one's.
+    game = create(client, [HUMAN] + [BOT] * 5)
+    token = join(client, game, 0)
+    v = my_turn(client, game, token)
+    deals = [e for e in v["events"] if e["kind"] == "reparto"]
+    assert deals and deals[-1]["hand_kind"] in ("redonda", "pica_pica")
+    assert (deals[-1]["hand_kind"] == "pica_pica") == (v["duel"] is not None)
+
+
+# --- online play: tokens, the cut, the host, the deal on polls ------------------------------
+
+
+def test_moves_need_the_seat_token_header(client):
+    game = create(client, [HUMAN] + [BOT] * 5)
+    join(client, game, 0)
+    move = {"action": {"kind": "quiero"}}
+    assert client.post(f"/api/games/{game}/act", json=move).status_code == 422
+    bad = client.post(f"/api/games/{game}/act", headers=h("x"), json=move)
+    assert bad.status_code == 403
+
+
+def test_only_the_cutter_cuts(client):
+    game = create(client, [HUMAN] * 6)
+    tokens = [join(client, game, s) for s in range(6)]
+    v = view(client, game)
+    cutter = v["cutter"]
+    assert v["deal_at"] > v["server_ms"]
+    other = (cutter + 1) % 6
+    assert post(client, game, "deal", tokens[other]).status_code == 403
+    res = client.post(f"/api/games/{game}/deal", headers=h(tokens[cutter]), json={"look": None})
+    assert res.status_code == 200, res.text
+    assert res.json()["phase"] == "playing" and res.json()["deal_at"] is None
+
+
+def test_the_host_resets_a_seat_and_it_can_be_joined_again(client):
+    res = client.post("/api/games", json={"seats": [HUMAN, HUMAN] + [BOT] * 4})
+    game, host = res.json()["id"], res.json()["host_token"]
+    join(client, game, 0)
+    lost = join(client, game, 1)
+    url = f"/api/games/{game}/seats/1/reset"
+    assert client.post(url, headers={"X-Host-Token": lost}).status_code == 403
+    v = client.post(url, headers={"X-Host-Token": host})
+    assert v.status_code == 200 and not v.json()["seats"][1]["joined"]
+    assert client.get(f"/api/games/{game}", headers=h(lost)).status_code == 403
+    assert client.post(url, headers={"X-Host-Token": host}).status_code == 409  # already open
+    join(client, game, 1, "Beto")
+    assert view(client, game)["seats"][1]["name"] == "Beto"
+
+
+def test_joining_brings_the_players_character_unless_taken(client):
+    game = create(client, [HUMAN, HUMAN, {**BOT, "character": "roca"}] + [BOT] * 3)
+    res = client.post(f"/api/games/{game}/join", json={"seat": 0, "character": "roca"})
+    assert res.status_code == 200
+    assert view(client, game)["seats"][0]["character"] != "roca"  # seat 2 has it
+    mine = view(client, game)["seats"][1]["character"]
+    client.post(f"/api/games/{game}/join", json={"seat": 1, "character": mine})
+    assert view(client, game)["seats"][1]["character"] == mine
+
+
+def test_a_poll_after_the_wait_deals(client, monkeypatch):
+    """No clock runs between requests: the first request after `deal_at` deals."""
+    game = create(client, [HUMAN] + [BOT] * 5)
+    token = join(client, game, 0)
+    waiting = view(client, game, token)
+    assert waiting["deal_at"] is not None and waiting["hand_number"] == 0
+    monkeypatch.setattr(registry, "now_ms", lambda: waiting["deal_at"])
+    dealt = view(client, game, token)
+    assert dealt["deal_at"] is None or dealt["hand_number"] >= 1
+    assert any(e["kind"] == "reparto" for e in dealt["events"])

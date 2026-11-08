@@ -7,6 +7,7 @@
   import { cardName, type Suit } from "$lib/cards";
   import {
     ACTION_LABELS,
+    HAND_KINDS,
     across,
     activeSenas,
     canPlay,
@@ -20,8 +21,8 @@
   import { actionForKey, commandForCode, senaForCode } from "$lib/keys";
   import { bindings } from "$lib/profile.svelte";
   import ActionBar from "./ActionBar.svelte";
-  import EnvidoPanel from "./EnvidoPanel.svelte";
   import Hand from "./Hand.svelte";
+  import GameOver from "./GameOver.svelte";
   import GameSettings, { type GameSettingsTab } from "./GameSettings.svelte";
   import KeyMap from "./KeyMap.svelte";
   import Mazo from "./Mazo.svelte";
@@ -117,6 +118,11 @@
     };
   });
 
+  // The end of the partido: once the last move has played out, until the player looks back
+  // at the table.
+  let endClosed = $state(false);
+  const gameOver = $derived(!!view.result && !busy && !endClosed);
+
   // The moves: shown while the pointer is over their button or the panel, never by a click.
   let logOpen = $state(false);
 
@@ -176,9 +182,10 @@
     return senas.get(seat);
   }
 
+  /** Mano, or a pie: each team has its own, its last player in the order. */
   function roleOf(seat: number): "mano" | "pie" | null {
     if (view.mano === seat) return "mano";
-    if (view.pie === seat) return "pie";
+    if (view.pies.includes(seat)) return "pie";
     return null;
   }
 
@@ -212,8 +219,12 @@
     const who = nameOf(e.seat);
     const by = (text: string) => (withName ? `${who}: ${text}` : text);
     switch (e.kind) {
-      case "reparto":
-        return `— ${t("game.handNumber", { n: e.number ?? "" })} —`;
+      case "reparto": {
+        // A beat keeps its event: the deal's modality is there.
+        const hk = ("event" in e ? e.event : e).hand_kind;
+        const kind = hk ? ` · ${HAND_KINDS[hk] ?? hk}` : "";
+        return `— ${t("game.handNumber", { n: e.number ?? "" })}${kind} —`;
+      }
       case "fin_mano":
         return t("game.manoPoints", {
           ta: view.team_names[0],
@@ -484,6 +495,7 @@
                 size={top === focus ? "lg" : "md"}
                 mine={ts.team === myTeam}
                 role={roleOf(top)}
+                ownPie={view.seats[top].team === (myTeam ?? 0)}
                 turn={view.to_act === top && !busy}
                 acting={acting(top)}
                 sena={senaOf(top)}
@@ -536,6 +548,7 @@
                 size="md"
                 mine={bs.team === myTeam}
                 role={roleOf(bottom)}
+                ownPie={view.seats[bottom].team === (myTeam ?? 0)}
                 turn={view.to_act === bottom && !busy}
                 acting={acting(bottom)}
               />
@@ -600,13 +613,6 @@
       disabled={focusIndex === 2}
       onclick={() => pan(1)}>›</button
     >
-
-    <!-- the envido, for everyone at the table: stakes, numbers said, who won it -->
-    <div class="absolute top-[24%] left-1/2 z-30 -translate-x-1/2">
-      {#key move?.kind === "envido_resuelto" ? move.id : "live"}
-        <EnvidoPanel {view} {nameOf} announcing={move?.kind === "envido_resuelto"} />
-      {/key}
-    </div>
 
     {#if banner}
       {#key banner.id}
@@ -795,6 +801,9 @@
       })}
     </div>
   {/if}
+  {#if gameOver}
+    <GameOver {view} {myTeam} nameOf={(seat) => nameOf(seat)} onClose={() => (endClosed = true)} />
+  {/if}
 </div>
 
 {#if settingsTab}
@@ -831,24 +840,25 @@
     background: linear-gradient(0deg, rgb(10 6 3 / 0.85), rgb(10 6 3 / 0.45) 60%, transparent);
   }
 
-  /* A stack spreads out on hover (centred), so every card played can be read. */
-  .stack {
-    transition: translate 0.2s ease-out;
-  }
+  /* A stack spreads out on hover, straight and side by side around its centre, so every card
+     played can be read. The stack itself never moves: moving it out from under the pointer
+     made the hover flicker on and off. */
   .stack:hover {
     z-index: 30;
-    translate: calc(var(--n) * -22px) 0;
   }
   .played {
     left: calc(var(--i) * 12px);
     top: calc(var(--i) * 6px);
     transition:
       left 0.2s ease-out,
-      top 0.2s ease-out;
+      top 0.2s ease-out,
+      transform 0.2s ease-out;
   }
   .stack:hover .played {
-    left: calc(var(--i) * 56px);
+    /* the stack is 56 + 12n wide: centre the n + 1 cards, 60px apart, on its middle */
+    left: calc(var(--n) * 6px + (var(--i) - var(--n) / 2) * 60px);
     top: 0;
+    transform: none;
   }
 
   /* The card winning the ronda so far: gold. A tie between teams: both silver. */
@@ -1051,7 +1061,6 @@
 
   @media (prefers-reduced-motion: reduce) {
     .camera,
-    .stack,
     .played {
       transition: none;
     }

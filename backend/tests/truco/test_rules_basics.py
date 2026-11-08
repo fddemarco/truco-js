@@ -3,7 +3,7 @@ import random
 import pytest
 
 from app.truco.cards import Card, Suit, new_deck
-from app.truco.envido import EnvidoCall, can_call, envido_points, tanto
+from app.truco.envido import EnvidoCall, can_call, envido_points, said_in_order, tanto
 from app.truco.rounds import hand_winner, round_winner
 from app.truco.score import capped, in_buenas
 from app.truco.table import (
@@ -223,3 +223,27 @@ def test_duel_order_follows_the_table_from_mano():
 
 def test_first_dealer_is_a_seat():
     assert all(0 <= choose_first_dealer(random.Random(seed)) < 6 for seed in range(20))
+
+
+# --- what the table hears of a strict envido (11.4–11.6) --------------------------------
+
+
+def test_said_in_order_rivals_declare_only_to_beat_and_teammates_of_the_best_stay_silent():
+    said, best = said_in_order([0, 1, 2, 3, 4, 5], {0: 4, 1: 31, 2: 24, 3: 31, 4: 25, 5: 31})
+    assert said == {0: 4, 1: 31, 2: None, 4: None}  # 3 and 5 never reveal their 31
+    assert best == 1
+
+
+def test_said_in_order_a_silent_player_speaks_once_their_team_is_behind():
+    # Seat 2 (33) stays silent while seat 0 leads with 20; seat 3 then leads with 25, so when
+    # the turn comes round seat 2 declares and wins.
+    said, best = said_in_order([0, 1, 2, 3, 4, 5], {0: 20, 1: 10, 2: 33, 3: 25, 4: 5, 5: 7})
+    assert best == 2 and said[2] == 33
+    assert said[1] is None and said[4] is None
+
+
+def test_said_in_order_a_tie_goes_to_whoever_is_closer_to_mano():
+    # 11.6: seat 2 (31) was silent; seat 3 says 31 later in the order. Seat 2 is closer to
+    # mano, so their 31 beats it when they speak.
+    said, best = said_in_order([0, 1, 2, 3], {0: 20, 1: 4, 2: 31, 3: 31})
+    assert best == 2 and said == {0: 20, 1: None, 3: 31, 2: 31}

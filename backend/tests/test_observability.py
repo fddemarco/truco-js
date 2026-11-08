@@ -34,7 +34,8 @@ def test_rejected_moves_are_logged_as_warnings(client):
     with capture_logs() as logs:
         client.post(
             f"/api/games/{game}/act",
-            json={"token": token, "action": {"kind": "vale_cuatro"}},
+            headers={"X-Seat-Token": token},
+            json={"action": {"kind": "vale_cuatro"}},
         )
     rejected = [e for e in logs if e["event"] == "game.action_rejected"]
     assert rejected and rejected[0]["log_level"] == "warning" and rejected[0]["seat"] == 0

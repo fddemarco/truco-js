@@ -24,15 +24,16 @@ const view = {
 } as unknown as GameView;
 
 describe("Scoreboard", () => {
-  it("shows each score as fósforos, the team names, and who plays for each", () => {
+  it("shows each score as squares of five strokes, the team names, and who plays for each", () => {
     render(Scoreboard, { view, myTeam: 0, nameOf: (s: number) => `P${s}` });
     const pumas = screen.getByRole("group", { name: "Los Pumas" });
-    expect(pumas.querySelectorAll("img.fosforo")).toHaveLength(13);
+    // 13 = two full squares (four sides and the diagonal) and three strokes, same for both teams
+    expect(pumas.querySelectorAll("path.stroke")).toHaveLength(13);
     expect(screen.getByTestId("score-0").textContent).toBe("13");
     expect(within(pumas).getByText("Tu equipo")).toBeTruthy();
     expect(within(pumas).getByText("P2")).toBeTruthy(); // in the hover card
     const teros = screen.getByRole("group", { name: "Los Teros" });
-    expect(teros.querySelectorAll("img.fosforo")).toHaveLength(4);
+    expect(teros.querySelectorAll("path.stroke")).toHaveLength(4);
     expect(within(teros).queryByText("Tu equipo")).toBeNull();
   });
 

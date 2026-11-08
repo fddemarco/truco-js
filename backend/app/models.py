@@ -49,3 +49,24 @@ class BotConfigRead(SQLModel):
     settings: BotSettings
     character: Character | None = None
     created_at: datetime
+
+
+class GameRecord(SQLModel, table=True):
+    """A running game, pickled by app/games/registry.py: every request loads it and saves it
+    back. Internal: never returned by the API."""
+
+    id: str = Field(primary_key=True)
+    state: bytes
+    # Bumped by every save; a save only lands on the revision it loaded (optimistic locking).
+    revision: int = 0
+    finished: bool = False
+    updated_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class GameStep(SQLModel, table=True):
+    """One step of a game (a pickled `session.Step`), stored apart so a request loads only the
+    steps its view needs. Internal."""
+
+    game_id: str = Field(primary_key=True)
+    index: int = Field(primary_key=True)
+    state: bytes

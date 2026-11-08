@@ -29,6 +29,7 @@ function makeView(overrides: Partial<GameView> = {}): GameView {
       character: CHARACTERS[i],
       kind: i === 0 ? "human" : "bot",
       joined: true,
+      online: true,
       in_play: true,
       active: true,
       cards_left: 3,
@@ -55,10 +56,25 @@ function makeView(overrides: Partial<GameView> = {}): GameView {
     truco_accepted: 0,
     envido: null,
     declarations: {},
-    envido_stakes: null,
+    deal_at: null,
+    cutter: null,
+    pies: [null, null],
+    stats: [],
     can_deal: false,
     result: null,
-    events: [{ seat: 1, kind: "truco", card: null, number: null, points: null, upheld: null }],
+    events: [
+      {
+        seat: 1,
+        kind: "truco",
+        card: null,
+        number: null,
+        points: null,
+        upheld: null,
+        stakes: null,
+        tantos: null,
+        hand_kind: null,
+      },
+    ],
     senas: [],
     me: 0,
     my_tanto: null,
@@ -342,48 +358,6 @@ describe("GameTable", () => {
     expect(screen.getByTestId("stack-5").querySelector(".winner")).not.toBeNull();
   });
 
-  it("shows every viewer what the envido is worth before it is answered", () => {
-    // a spectator too: not only those who answer
-    setup(
-      makeView({
-        me: null,
-        actions: [],
-        envido_calls: ["envido", "real_envido"],
-        pending: [{ family: "envido", chanter: 1, in_turn: true, irregular: false }],
-        envido_stakes: { quiero: [5, 5], no_quiero: 2, team: 1 },
-      }),
-    );
-    const stakes = screen.getByTestId("envido-stakes").textContent;
-    expect(stakes).toMatch(/Quiero.*\+5/);
-    expect(stakes).toMatch(/No quiero.*\+2/);
-  });
-
-  it("announces the envido winner with the numbers said, in the log too", async () => {
-    const envido = { calls: ["envido"], accepted: true, team: 1, points: 2, winner_seat: 3 };
-    const result = {
-      seat: 3,
-      kind: "envido_resuelto",
-      card: null,
-      number: 30,
-      points: [0, 2],
-      upheld: null,
-    };
-    setup(
-      makeView({ mano: 0, envido: { ...envido, tantos: { 0: 27, 3: 30 } }, events: [result] }),
-      {
-        busy: true,
-        beat: { id: 5, ...result, ms: 1600, think: 0 },
-      },
-    );
-    const panel = screen.getByTestId("envido-panel");
-    expect(panel.dataset.kind).toBe("result");
-    expect(panel.textContent).toMatch(/Envido para P3.*\+2/);
-    expect(panel.querySelector("[data-best]")?.textContent).toContain("30");
-    await fireEvent.mouseEnter(screen.getByTestId("moves"));
-    const row = screen.getByTestId("events").querySelector('[data-kind="envido_resuelto"]');
-    expect(row?.textContent).toMatch(/Envido.*30.*\+2/);
-  });
-
   it("logs rondas, envidos and the end of a mano in their own style", async () => {
     const ev = (kind: string, extra = {}) => ({
       seat: null,
@@ -392,6 +366,9 @@ describe("GameTable", () => {
       number: null,
       points: null,
       upheld: null,
+      stakes: null,
+      tantos: null,
+      hand_kind: null,
       ...extra,
     });
     setup(
@@ -418,6 +395,48 @@ describe("GameTable", () => {
   });
 });
 
+describe("GameTable, envido in the log", () => {
+  const ev = (kind: string, extra = {}) => ({
+    seat: null,
+    kind,
+    card: null,
+    number: null,
+    points: null,
+    upheld: null,
+    stakes: null,
+    tantos: null,
+    hand_kind: null,
+    ...extra,
+  });
+
+  it("says what an envido is worth, and everyone's envido once it is played", async () => {
+    setup(
+      makeView({
+        me: null, // a spectator sees it too
+        events: [
+          ev("falta_envido", { seat: 1, stakes: [27, 20, 1] }),
+          ev("quiero", { seat: 2 }),
+          ev("envido_resuelto", {
+            seat: 3,
+            number: 31,
+            points: [0, 27],
+            tantos: [25, 7, null, 31, 28, 20],
+          }),
+        ],
+      }),
+    );
+    await fireEvent.mouseEnter(screen.getByTestId("moves"));
+    const log = screen.getByTestId("events");
+    const stakes = (within(log).getByTestId("stakes").textContent ?? "").replace(/\s+/g, " ");
+    expect(stakes).toMatch(/Quiero.*\+27.*\+20/); // a falta: one value per team
+    expect(stakes).toMatch(/No quiero \+1/);
+    const tantos = within(log).getByTestId("envido-tantos");
+    expect(tantos.querySelector('[data-seat="3"]')?.textContent).toMatch(/P3\s*31/);
+    expect(tantos.querySelector('[data-seat="2"]')?.textContent).toMatch(/Son buenas/);
+    expect(log.querySelector('[data-kind="envido_resuelto"]')?.textContent).toContain("+27");
+  });
+});
+
 describe("GameTable, more", () => {
   it("highlights the card winning the ronda so far, silver for a parda", () => {
     const played = (seat: number, number: number, suit: string) => ({
@@ -439,10 +458,13 @@ describe("GameTable, more", () => {
     expect(screen.getByTestId("stack-2").querySelector("[data-lead]")).toBeNull();
   });
 
-  it("marks mano and pie, and the viewer's team", () => {
-    setup(makeView({ mano: 0, pie: 5 }));
+  it("marks mano and a pie per team, the viewer's lighter, and the viewer's team", () => {
+    setup(makeView({ mano: 0, pie: 5, pies: [4, 5] }));
     expect(within(screen.getByTestId("badge-0")).getByTestId("role-mano")).toBeTruthy();
-    expect(within(screen.getByTestId("badge-5")).getByTestId("role-pie")).toBeTruthy();
+    const pie = (seat: number) =>
+      within(screen.getByTestId(`badge-${seat}`)).getByTestId("role-pie");
+    expect(pie(4).dataset.own).toBe("true"); // the viewer (seat 0) is on team 0
+    expect(pie(5).dataset.own).toBe("false");
     expect(screen.getByText("Tu equipo")).toBeTruthy();
   });
 

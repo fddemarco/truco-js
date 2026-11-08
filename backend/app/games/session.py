@@ -1,14 +1,22 @@
 """Game sessions: a `Match` shared by human seats (with tokens) and bots.
 
-Sessions live in memory, so they are lost when the API restarts. A client may hold several
-seat tokens: one device for every human seat is local multiplayer; one token per device is
-online multiplayer. After every human move the bots whose turn it is play right away.
+A client may hold several seat tokens: one device for every human seat is local multiplayer;
+one token per device is online multiplayer. After every move the bots whose turn it is play
+right away. Between manos the table deals by itself at `deal_at` (`tick`, called by
+app/games/registry.py on every request); the cutter may cut sooner (`deal`). Whoever created
+the game holds the host token, which can free a seat whose player lost their token
+(`reset_seat`).
+
+The session knows nothing about storage: app/games/registry.py loads it from the database
+for every request and saves it back (`__getstate__` leaves out the lock and the steps, which
+are stored one row each).
 """
 
 import random
 import secrets
 import threading
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -17,35 +25,25 @@ import structlog
 from app.bots.settings import BotSettings
 from app.bots.strategy import choose_action
 from app.games.characters import Character, draw_team_names
-from app.games.schemas import (
-    ActionModel,
-    CardModel,
-    EnvidoStakesView,
-    EnvidoView,
-    EventView,
-    GameView,
-    PendingView,
-    PlayView,
-    ResultView,
-    SeatView,
-    SenaSeenView,
-    SenaView,
-    StepView,
-)
-from app.truco.cards import Card, Suit
+from app.games.schemas import EventView, GameView
+from app.games.stats import ENVIDO_CANTOS, PartidoLog
+from app.games.views import MAX_EVENTS, build_view, card_model, steps_for
+from app.truco.cards import Card
 from app.truco.config import GameConfig
-from app.truco.envido import said_in_order, tanto
 from app.truco.hand import Action, ActionKind, Contest, IllegalAction, PicaPicaHand
-from app.truco.match import Match, MatchError
+from app.truco.match import Match, MatchError, MatchResult
 from app.truco.rounds import round_winner
 from app.truco.signals import BodySpot, Sena, SenaEvent
-from app.truco.table import SEATS, across, number_of, seats_across, team_of
+from app.truco.table import SEATS, team_of
 
 log = structlog.get_logger("game")
 
-MAX_EVENTS = 40
 MAX_STEPS = 300  # a mano takes far fewer; older steps are dropped
-SENA_VISIBLE_MS = 6000
+MAX_BOT_MOVES = 500  # bot moves in a row; a whole partido takes fewer
+# How long the table waits before dealing the next mano (ms): a bot cutter deals after a pause
+# to read the result; a human one gets time to cut (or reclamar), then the table deals anyway.
+BOT_CUTTER_WAIT_MS = 2000
+HUMAN_CUTTER_WAIT_MS = 10_000
 
 
 class GameError(ValueError):
@@ -53,7 +51,11 @@ class GameError(ValueError):
 
 
 class Forbidden(GameError):
-    """Unknown seat token (HTTP 403)."""
+    """Unknown seat or host token, or not this seat's call (HTTP 403)."""
+
+
+class NotFound(GameError):
+    """No such game (HTTP 404)."""
 
 
 class Conflict(GameError):
@@ -67,6 +69,7 @@ class Seat:
     character: Character
     bot: BotSettings | None = None
     token: str | None = None
+    last_seen_ms: int = 0  # the seat's last view or move (presence)
 
     @property
     def joined(self) -> bool:
@@ -92,22 +95,10 @@ def now_ms() -> int:
     return int(time.time() * 1000)
 
 
-def to_card(model: CardModel) -> Card:
-    return Card(model.number, Suit(model.suit))
-
-
-def card_model(card: Card) -> CardModel:
-    return CardModel(number=card.number, suit=str(card.suit))
-
-
-def to_action(model: ActionModel) -> Action:
-    card = to_card(model.card) if model.card else None
-    return Action(model.kind, card=card, number=model.number, sena=model.sena)
-
-
-def action_model(action: Action) -> ActionModel:
-    card = card_model(action.card) if action.card else None
-    return ActionModel(kind=action.kind, card=card, number=action.number, sena=action.sena)
+def _duels(hand: Contest | PicaPicaHand | None) -> list[Contest]:
+    if isinstance(hand, PicaPicaHand):
+        return list(hand.duels)
+    return [hand] if hand is not None else []
 
 
 class GameSession:
@@ -131,55 +122,108 @@ class GameSession:
         self.rng = rng or random.Random()
         self.team_names = team_names or draw_team_names(self.rng)
         self.match = Match(rng=self.rng, config=config)
-        self.lock = threading.Lock()
+        self.host_token = secrets.token_urlsafe(16)
+        # Reentrant: a move returns the view it leaves, under the same lock.
+        self.lock = threading.RLock()
         self.version = 0
         self.started = False
+        self.deal_at: int | None = None  # epoch ms the table deals the next mano
         self.events: list[EventView] = []
-        self.steps: list[Step] = []
+        self.stats_log = PartidoLog()
+        self.steps: list[Step] = []  # the ones loaded for this request (registry)
+        self.deal_step: int | None = None  # the index of the last deal's step
+        self.previous_deal_step: int | None = None  # the one before (older steps go)
+        self._next_step = 0  # step indexes keep counting across a restore
         self._step_events: list[EventView] = []  # since the last step
         self._contest: Contest | None = None  # last contest shown, kept between manos
+        self._announced: MatchResult | None = None  # the result last put in the log
+
+    # --- storage ----------------------------------------------------------------------
+
+    def __getstate__(self) -> dict:
+        # Steps are many full views: the registry stores each in its own row and loads only
+        # the ones a request can need (step indexes go on from `_next_step`).
+        state = self.__dict__.copy()
+        del state["lock"]
+        state["steps"] = []
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        self.__dict__.update(state)
+        self.lock = threading.RLock()
 
     # --- requests -------------------------------------------------------------------
 
-    def join(self, seat: int, name: str = "") -> str:
+    def join(self, seat: int, name: str = "", character: Character | None = None) -> str:
+        """Take an open human seat; `character` is kept if no other seat has it."""
         with self.lock:
             target = self.seats[seat]
             if target.kind != "human" or target.joined:
                 raise Conflict(f"seat {seat} is not open")
             target.token = secrets.token_urlsafe(16)
+            target.last_seen_ms = now_ms()
             if name.strip():
                 target.name = name.strip()
+            taken = {s.character for i, s in enumerate(self.seats) if i != seat}
+            if character is not None and character not in taken:
+                target.character = character
             log.info("game.joined", game_id=self.id, seat=seat)
-            if all(s.joined for s in self.seats):
-                # The table shuffles, cuts and deals the first mano like every other one (deal).
+            if not self.started and all(s.joined for s in self.seats):
+                # The table shuffles, cuts and deals the first mano like every other one.
                 self.started = True
                 log.info("game.started", game_id=self.id)
                 self._commit(None)  # the table before the first deal
             self._touch()
             return target.token
 
-    def act(self, token: str, action: Action) -> None:
+    def act(
+        self, token: str, action: Action, look: int | None = None, since: int | None = None
+    ) -> GameView:
         with self.lock:
-            seat = self.seat_for(token)
+            seat = self._seen(token)
             if not self.started:
                 raise GameError("waiting for players")
             self._apply(seat, action)
             self._run_bots()
             self._touch()
+            return self._view(seat, look, since)
 
-    def deal(self, token: str) -> None:
+    def deal(self, token: str, look: int | None = None, since: int | None = None) -> GameView:
+        """The cutter cuts before `deal_at`: the table deals now."""
         with self.lock:
-            self.seat_for(token)
-            if not self.started or self.match.hand is not None or self.match.finished:
+            seat = self._seen(token)
+            if not self._can_deal():
                 raise GameError("can't deal now")
+            if seat != self.cutter:
+                raise Forbidden(f"only the cutter (seat {self.cutter}) cuts")
             self._deal()
             self._touch()
+            return self._view(seat, look, since)
+
+    def tick(self, now: int) -> bool:
+        """Deal if the table's wait is over (`now` in epoch ms). True if it dealt."""
+        with self.lock:
+            if self.deal_at is None or now < self.deal_at:
+                return False
+            if not self._can_deal():
+                self.deal_at = None
+                return False
+            self._deal()
+            self._touch()
+            return True
 
     def sena(
-        self, token: str, sena: Sena, spot: BodySpot, duration_ms: int, target: int | None
-    ) -> None:
+        self,
+        token: str,
+        sena: Sena,
+        spot: BodySpot,
+        duration_ms: int,
+        target: int | None,
+        look: int | None = None,
+        since: int | None = None,
+    ) -> GameView:
         with self.lock:
-            seat = self.seat_for(token)
+            seat = self._seen(token)
             warnings = list(self.match.warnings)
             try:
                 event = SenaEvent(seat, sena, spot, now_ms(), duration_ms, target)
@@ -197,14 +241,33 @@ class GameSession:
                 self._commit(seat)
             self._run_bots()
             self._touch()
+            return self._view(seat, look, since)
+
+    def reset_seat(self, host_token: str, seat: int) -> GameView:
+        """The host frees a human seat (its player lost their token): the old token stops
+        working and anyone with the link can take the seat again."""
+        with self.lock:
+            if not secrets.compare_digest(self.host_token, host_token):
+                raise Forbidden("unknown host token")
+            target = self.seats[seat]
+            if target.kind != "human" or target.token is None:
+                raise Conflict(f"seat {seat} is not taken")
+            target.token = None
+            target.last_seen_ms = 0
+            log.info("game.seat_reset", game_id=self.id, seat=seat)
+            self._touch()
+            return self._view(None, None, None)
+
+    @property
+    def next_step(self) -> int:
+        """The index the next step gets."""
+        return self._next_step
 
     def seat_for(self, token: str) -> int:
         for i, seat in enumerate(self.seats):
             if seat.token is not None and secrets.compare_digest(seat.token, token):
                 return i
         raise Forbidden("unknown seat token")
-
-    # --- view -----------------------------------------------------------------------
 
     def view(
         self, token: str | None = None, look: int | None = None, since: int | None = None
@@ -213,206 +276,97 @@ class GameSession:
 
         A seat only sees the señas of the player across it is looking at (and its own), as
         faces on its own side of the table can't be seen. Spectators see every seña.
-        The view carries the steps after `since` (see `_steps_for`).
+        The view carries the steps after `since` (see `views.steps_for`).
         """
         with self.lock:
-            me = self.seat_for(token) if token else None
-            view = self._build_view(me, look)
-            view.step = self.steps[-1].index if self.steps else -1
-            view.steps, view.base = self._steps_for(me, since)
-            return view
+            me = self._seen(token) if token else None
+            return self._view(me, look, since)
 
-    def _build_view(self, me: int | None, look: int | None) -> GameView:
-        """The table as it is now for seat `me` (None: a spectator)."""
+    # --- what's on the table ------------------------------------------------------------
+
+    @property
+    def cutter(self) -> int:
+        """Who cuts the next deal: the player to the dealer's left (the dealer deals to the
+        right, 5.5)."""
+        return (self.match.dealer + SEATS - 1) % SEATS
+
+    def _table_hand(self) -> Contest | PicaPicaHand | None:
+        """The mano in progress, or the last one, kept on the table until the next deal."""
         m = self.match
-        hand = m.hand
-        contest = self._current_contest()
-        seats = [self._seat_view(i, contest) for i in range(SEATS)]
-        view = GameView(
-            id=self.id,
-            mode=self.config.mode,
-            version=self.version,
-            server_ms=now_ms(),
-            started=self.started,
-            match_phase=m.phase,
-            seats=seats,
-            team_names=list(self.team_names),
-            score=list(m.score),
-            target=self.config.scoring.target,
-            malas_max=self.config.scoring.malas_max,
-            hand_number=len(m.history) + (1 if hand else 0),
-            hand_kind=m.hand_kind if self.started else None,
-            dealer=m.dealer,
-            phase=hand.phase if hand else None,
-            to_act=hand.to_act if hand else None,
-            can_deal=self.started and hand is None and not m.finished,
-            result=ResultView(kind=m.result.kind, winner=m.result.winner) if m.result else None,
-            events=self.events[-MAX_EVENTS:],
-            me=me,
-        )
-        if contest is not None:
-            self._fill_contest(view, contest, hand)
-        if me is not None:
-            focus = look if look is not None and look in seats_across(me) else across(me)
-            view.senas = [s for s in view.senas if s.seat in (me, focus)]
-            view.my_cards = [card_model(c) for c in self._cards_of(me)]
-            if self.started:
-                view.actions = [action_model(a) for a in m.actions_for(me)]
-            if contest is not None and me in contest.seats:
-                view.my_tanto = tanto(contest.dealt[me])
-                view.senas_seen = [
-                    SenaSeenView(seat=s.seat, sena=s.sena, ronda=s.ronda)
-                    for s in contest.senas_seen(me)
-                ]
-        return view
+        if m.hand is not None:
+            return m.hand
+        return m.last_hand if self._contest is not None else None
 
-    def _steps_for(
-        self, me: int | None, since: int | None
-    ) -> tuple[list[StepView], GameView | None]:
-        """The steps after `since`. Without it (a viewer arriving at the table), the current
-        mano's steps since the viewer's last move, or since the deal, so the moves they missed
-        play out from `base`, the table before them."""
-        if since is not None:
-            return [self._step_view(s, me) for s in self.steps if s.index > since], None
-        if self.match.hand is None:
-            return [], None
-        deal = next((i for i in range(len(self.steps) - 1, -1, -1) if self.steps[i].deal), None)
-        if deal is None:
-            return [], None
-        start = deal
-        for i in range(deal + 1, len(self.steps)):
-            if me is not None and self.steps[i].seat == me:
-                start = i + 1
-        if start == 0 or start >= len(self.steps):
-            return [], None
-        steps = [self._step_view(s, me) for s in self.steps[start:]]
-        return steps, self.steps[start - 1].views[me]
-
-    @staticmethod
-    def _step_view(step: Step, me: int | None) -> StepView:
-        return StepView(index=step.index, seat=step.seat, events=step.events, view=step.views[me])
-
-    def _fill_contest(self, view: GameView, contest: Contest, hand) -> None:
-        view.mano = contest.mano
-        view.pie = contest.seats[-1]
-        if contest.pica_pica:
-            view.duel = list(contest.seats)
-        view.rounds = [
-            [PlayView(seat=s, card=card_model(c)) for s, c in ronda] for ronda in contest.rounds
-        ]
-        view.results = list(contest.results)
-        view.pending = [
-            PendingView(
-                family=p.family, chanter=p.chanter, in_turn=p.in_turn, irregular=p.irregular
-            )
-            for p in contest.pending
-        ]
-        view.envido_calls = [str(c) for c in contest.envido_calls]
-        view.truco_level = contest.truco_level
-        view.truco_accepted = contest.truco_accepted
-        stakes = contest.envido_stakes()
-        if stakes is not None:
-            quiero, no_quiero, team = stakes
-            view.envido_stakes = EnvidoStakesView(
-                quiero=list(quiero), no_quiero=no_quiero, team=team
-            )
-        if contest.envido:
-            e = contest.envido
-            view.envido = EnvidoView(
-                calls=[str(c) for c in e.calls],
-                accepted=e.accepted,
-                team=e.team,
-                points=e.points,
-                winner_seat=e.winner_seat,
-                tantos=_said(contest),
-            )
-        if contest.declaration:
-            view.declarations = dict(contest.declaration.declared)
-        recent = now_ms() - SENA_VISIBLE_MS
-        events = contest.sena_events if hand is not None else []
-        view.senas = [
-            SenaView(
-                seat=e.seat,
-                sena=e.sena,
-                spot=e.spot,
-                target=e.target,
-                start_ms=e.start_ms,
-                duration_ms=e.duration_ms,
-            )
-            for e in events
-            if e.start_ms + e.duration_ms >= recent
-        ]
-
-    def _seat_view(self, seat: int, contest: Contest | None) -> SeatView:
-        s = self.seats[seat]
-        in_play = contest is not None and seat in contest.seats
-        shown = (
-            [card_model(c) for c in contest.dealt[seat]]
-            if in_play and contest is not None and seat in contest.shown
-            else []
-        )
-        return SeatView(
-            seat=seat,
-            team=team_of(seat),
-            number=number_of(seat),
-            name=s.name,
-            character=s.character,
-            kind=s.kind,
-            joined=s.joined,
-            in_play=in_play,
-            active=in_play and contest is not None and seat in contest.active,
-            cards_left=len(self._cards_of(seat)),
-            shown=shown,
-            played=[card_model(c) for c in self._played(seat)],
-        )
-
-    def _played(self, seat: int) -> list[Card]:
-        """The cards `seat` played this mano: every duel of a pica-pica hand, kept on the
-        table after the mano ends until the next deal."""
-        m = self.match
-        hand = m.hand if m.hand is not None else (m.last_hand if self._contest else None)
-        contests = hand.duels if isinstance(hand, PicaPicaHand) else [hand] if hand else []
-        rondas = [ronda for contest in contests for ronda in contest.rounds]
-        return [c for ronda in rondas for s, c in ronda if s == seat]
-
-    def _current_contest(self) -> Contest | None:
+    def contest(self) -> Contest | None:
+        """The mano (or duelo de pica-pica) in progress, or the last one shown."""
         hand = self.match.hand
         if isinstance(hand, PicaPicaHand):
             return hand.current
         return hand if hand is not None else self._contest
 
-    def _cards_of(self, seat: int) -> list[Card]:
+    def cards_of(self, seat: int) -> list[Card]:
         hand = self.match.hand
         if isinstance(hand, PicaPicaHand):
             for duel in hand.duels:
                 if seat in duel.seats:
                     return list(duel.hands[seat])
             return list(hand.hands[seat])  # their duelo hasn't started
-        contest = hand if hand is not None else self._contest
+        contest = self.contest()
         if contest is None or seat not in contest.seats:
             return []
         return list(contest.hands[seat])
 
+    def played(self, seat: int) -> list[Card]:
+        """The cards `seat` played this mano: every duel of a pica-pica hand, kept on the
+        table after the mano ends until the next deal."""
+        rondas = [ronda for c in _duels(self._table_hand()) for ronda in c.rounds]
+        return [c for ronda in rondas for s, c in ronda if s == seat]
+
     # --- internals ------------------------------------------------------------------
+
+    def _seen(self, token: str) -> int:
+        seat = self.seat_for(token)
+        self.seats[seat].last_seen_ms = now_ms()
+        return seat
+
+    def _view(self, me: int | None, look: int | None, since: int | None) -> GameView:
+        view = build_view(self, me, look, now_ms())
+        view.step = self.steps[-1].index if self.steps else self._next_step - 1
+        view.steps, view.base = steps_for(self, me, since)
+        return view
+
+    def _can_deal(self) -> bool:
+        return self.started and self.match.hand is None and not self.match.finished
 
     def _touch(self) -> None:
         self.version += 1
+        self._schedule()
+
+    def _schedule(self) -> None:
+        """Between manos the table deals by itself after a wait; otherwise nothing is due."""
+        if not self._can_deal():
+            self.deal_at = None
+        elif self.deal_at is None:
+            human = self.seats[self.cutter].kind == "human"
+            self.deal_at = now_ms() + (HUMAN_CUTTER_WAIT_MS if human else BOT_CUTTER_WAIT_MS)
 
     def _commit(self, seat: int | None) -> None:
         """Close a step: the events since the last one, and the table as every human seat and
         a spectator see it now, so clients show each move on the table as it was then."""
         events, self._step_events = self._step_events, []
-        index = self.steps[-1].index + 1 if self.steps else 0
         viewers = [None, *(i for i, s in enumerate(self.seats) if s.kind == "human")]
+        now = now_ms()
         views = {}
         for me in viewers:
-            view = self._build_view(me, None)
+            view = build_view(self, me, None, now)
             view.senas = []  # señas are live, not part of a step
             views[me] = view
-        self.steps.append(Step(index, seat, events, views))
+        self.steps.append(Step(self._next_step, seat, events, views))
+        self._next_step += 1
         del self.steps[:-MAX_STEPS]
 
     def _event(self, event: EventView) -> None:
+        self.stats_log.move(event.seat, event.kind, event.number)
         self.events.append(event)
         self._step_events.append(event)
         del self.events[: -MAX_EVENTS * 2]
@@ -420,8 +374,19 @@ class GameSession:
     def _deal(self) -> None:
         self.match.deal()
         self._contest = None
-        self._event(EventView(kind="reparto", number=len(self.match.history) + 1))
+        self.deal_at = None
+        hand = self.match.hand
+        if hand is not None:
+            self.stats_log.deal(len(self.match.history) + 1, hand.hands)
+        self._event(
+            EventView(
+                kind="reparto",
+                number=len(self.match.history) + 1,
+                hand_kind=str(self.match.hand_kind),
+            )
+        )
         self._commit(None)
+        self.previous_deal_step, self.deal_step = self.deal_step, self._next_step - 1
         log.info(
             "game.dealt",
             game_id=self.id,
@@ -433,9 +398,10 @@ class GameSession:
 
     def _apply(self, seat: int, action: Action) -> None:
         had_hand = self.match.hand is not None
-        contests = self._all_contests()
+        contests = _duels(self._table_hand())
         had_envido = {id(c) for c in contests if c.envido is not None}
         had_results = {id(c): len(c.results) for c in contests}
+        score_before = list(self.match.score)
         try:
             self.match.play(action, seat)
         except (IllegalAction, MatchError) as e:
@@ -461,9 +427,24 @@ class GameSession:
         if action.kind == ActionKind.SENA:
             event.card = event.number = None  # a seña is private
             event.kind = "sena"
+        if str(action.kind) in ENVIDO_CANTOS:
+            # What the canto is worth, so everyone knows before it is answered.
+            sung = next((c for c in contests if seat in c.seats and c.envido_stakes()), None)
+            if sung is not None:
+                stakes = sung.envido_stakes()
+                assert stakes is not None
+                event.stakes = [*stakes[0], stakes[1]]
         if action.kind == ActionKind.RECLAMAR:
             claimed = next((c for c in contests if c.claims and c.claims[-1][0] == seat), None)
             event.upheld = claimed.claims[-1][1] if claimed else None
+            log.info(
+                "game.reclamo",
+                game_id=self.id,
+                seat=seat,
+                upheld=event.upheld,
+                score_before=score_before,
+                score_after=list(self.match.score),
+            )
         self._event(event)
         for c in contests:
             for i in range(had_results[id(c)], len(c.results)):
@@ -473,21 +454,39 @@ class GameSession:
                 self._event(EventView(seat=seat_won, kind="ronda", number=i + 1))
         for c in contests:
             if c.envido is not None and id(c) not in had_envido:
-                e = c.envido
-                said = _said(c)
-                if e.accepted and not self.config.interactive:
-                    # Strict: the engine compared the tantos; say them as the table would hear.
-                    for s, n in said.items():
-                        kind = "declarar" if n is not None else "son_buenas"
-                        self._event(EventView(seat=s, kind=kind, number=n))
-                points = [0, 0]
-                points[e.team] = e.points
-                won = said.get(e.winner_seat) if e.winner_seat is not None else None
-                self._event(
-                    EventView(seat=e.winner_seat, kind="envido_resuelto", points=points, number=won)
-                )
+                self._envido_resolved(c)
         self._after_change(had_hand)
         self._commit(seat)
+
+    def _envido_resolved(self, contest: Contest) -> None:
+        e = contest.envido
+        assert e is not None
+        points = [0, 0]
+        points[e.team] = e.points
+        # Every player's envido, for the log: strict, the real tantos; interactive, what each
+        # declared (None: son buenas).
+        tantos: list[int | None] = [None] * len(self.seats)
+        for s, n in e.tantos.items():
+            tantos[s] = n
+        won = e.tantos.get(e.winner_seat) if e.winner_seat is not None else None
+        log.info(
+            "game.envido_resolved",
+            game_id=self.id,
+            calls=[str(x) for x in e.calls],
+            accepted=e.accepted,
+            team=e.team,
+            points=e.points,
+            winner_seat=e.winner_seat,
+        )
+        self._event(
+            EventView(
+                seat=e.winner_seat,
+                kind="envido_resuelto",
+                points=points,
+                number=won,
+                tantos=tantos if e.accepted else None,
+            )
+        )
 
     def _after_change(self, had_hand: bool) -> None:
         m = self.match
@@ -497,76 +496,62 @@ class GameSession:
             log.info(
                 "game.mano_finished", game_id=self.id, points=list(last.points), score=list(m.score)
             )
-            self._contest = self._last_contest()
-        if m.result is not None and (not self.events or self.events[-1].kind != "resultado"):
-            self._event(EventView(kind="resultado", seat=None, points=list(m.score)))
-            log.info(
-                "game.finished",
-                game_id=self.id,
-                result=m.result.kind,
-                winner=m.result.winner,
-                score=list(m.score),
-            )
-
-    def _all_contests(self) -> list[Contest]:
-        hand = self.match.hand
-        if isinstance(hand, PicaPicaHand):
-            return list(hand.duels)
-        if hand is not None:
-            return [hand]
-        return [self._contest] if self._contest else []
-
-    def _last_contest(self) -> Contest | None:
-        last = self.match.last_hand
-        if isinstance(last, PicaPicaHand):
-            return last.duels[-1]
-        return last
+            last_hand = m.last_hand
+            self._contest = _duels(last_hand)[-1] if last_hand is not None else None
+        if m.result == self._announced:
+            return
+        if m.result is None:
+            # A reclamo moved the last mano's points and nobody reaches the target now.
+            log.info("game.result_cleared", game_id=self.id, score=list(m.score))
+            self._announced = None
+            return
+        self._announced = m.result
+        self._event(EventView(kind="resultado", seat=None, points=list(m.score)))
+        log.info(
+            "game.finished",
+            game_id=self.id,
+            result=m.result.kind,
+            winner=m.result.winner,
+            score=list(m.score),
+        )
 
     def _run_bots(self) -> None:
-        for _ in range(500):
+        """Bots whose turn it is play now. A bot that fails is logged and plays its first legal
+        move instead, so the human whose move was already applied isn't blamed for it and the
+        game doesn't stall."""
+        for _ in range(MAX_BOT_MOVES):
             hand = self.match.hand
             if hand is None or self.match.finished:
                 return
             seat = hand.to_act
             if seat is None or self.seats[seat].kind != "bot":
                 return
-            settings = self.seats[seat].bot
-            assert settings is not None
+            if not self._bot_move(hand, seat):
+                return
+        log.error("game.bot_loop_cap", game_id=self.id, moves=MAX_BOT_MOVES)
+
+    def _bot_move(self, hand: Contest | PicaPicaHand, seat: int) -> bool:
+        settings = self.seats[seat].bot
+        assert settings is not None
+        try:
             self._apply(seat, choose_action(hand, settings, self.rng, seat))
-
-
-def _said(contest: Contest) -> dict[int, int | None]:
-    """The envido as the table heard it: interactive, what was declared; strict, what would
-    have been said in turn from the real tantos (11.4, 11.5), never a tanto kept quiet."""
-    e = contest.envido
-    if e is None or not e.accepted:
-        return {}
-    if contest.config.interactive:
-        return dict(e.tantos)
-    real = {s: n for s, n in e.tantos.items() if n is not None}
-    return said_in_order(list(real), real)
-
-
-_games: dict[str, GameSession] = {}
-_games_lock = threading.Lock()
-
-
-def create_game(
-    config: GameConfig, seats: list[Seat], team_names: tuple[str, str] | None = None
-) -> GameSession:
-    with _games_lock:
-        game_id = secrets.token_urlsafe(6)
-        session = GameSession(game_id, config, seats, team_names=team_names)
-        _games[game_id] = session
-        log.info(
-            "game.created",
-            game_id=game_id,
-            mode=str(config.mode),
-            humans=sum(s.kind == "human" for s in seats),
-            bots=sum(s.kind == "bot" for s in seats),
-        )
-        return session
-
-
-def get_game(game_id: str) -> GameSession | None:
-    return _games.get(game_id)
+            return True
+        except Exception:
+            legal: Sequence[Action] = hand.legal_actions(seat)
+            log.exception(
+                "game.bot_failed",
+                game_id=self.id,
+                seat=seat,
+                phase=str(hand.phase),
+                legal=[str(a.kind) for a in legal],
+            )
+        fallback = next((a for a in legal if a.kind == ActionKind.PLAY), None)
+        fallback = fallback or (legal[0] if legal else None)
+        if fallback is None:
+            return False
+        try:
+            self._apply(seat, fallback)
+            return True
+        except Exception:
+            log.exception("game.bot_stuck", game_id=self.id, seat=seat)
+            return False

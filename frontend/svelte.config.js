@@ -5,7 +5,8 @@ import { vitePreprocess } from "@sveltejs/vite-plugin-svelte";
 export default {
   preprocess: vitePreprocess(),
   kit: {
-    // SPA mode: FastAPI is the only server; every route falls back to index.html.
+    // SPA mode: a static site whose routes all fall back to index.html. /api is FastAPI
+    // (the Vite proxy locally, a Vercel function in production; see vercel.json).
     adapter: adapter({ fallback: "index.html" }),
   },
 };

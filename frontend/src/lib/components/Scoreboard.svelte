@@ -3,7 +3,6 @@
   import { Tween } from "svelte/motion";
   import { cubicOut } from "svelte/easing";
   import type { GameView } from "$lib/api/client";
-  import { FOSFORO } from "$lib/cards";
   import { status, tally } from "$lib/game";
   import { t } from "$lib/i18n.svelte";
   import Avatar from "./Avatar.svelte";
@@ -42,18 +41,28 @@
 
   const mano = $derived(status(view));
 
-  // Each fósforo of a square of five: four sides, then the diagonal.
-  // The box is 18 px, a fósforo 3×18 px: rotating one about its centre lays it across.
+  // Five points make a square: four sides, then the diagonal. Same plain strokes for both
+  // teams, drawn in that order as points come in.
   const SIDES = [
-    "left: 0; top: 0",
-    "left: calc(50% - 1.5px); top: -50%; transform: rotate(90deg)",
-    "left: calc(100% - 3px); top: 0",
-    "left: calc(50% - 1.5px); top: 50%; transform: rotate(90deg)",
-    "left: calc(50% - 1.5px); top: 0; transform: rotate(45deg) scaleY(1.3)",
+    "M2 2V16", // left
+    "M2 2H16", // top
+    "M16 2V16", // right
+    "M2 16H16", // bottom
+    "M2 16L16 2", // diagonal
   ];
   const TEAM = [
-    { dot: "bg-indigo-400", text: "text-indigo-200", ring: "ring-indigo-300", plus: "#a5b4fc" },
-    { dot: "bg-rose-400", text: "text-rose-200", ring: "ring-rose-300", plus: "#fda4af" },
+    {
+      dot: "bg-indigo-400",
+      text: "text-indigo-200",
+      ring: "ring-indigo-300",
+      plus: "#a5b4fc",
+    },
+    {
+      dot: "bg-rose-400",
+      text: "text-rose-200",
+      ring: "ring-rose-300",
+      plus: "#fda4af",
+    },
   ];
   const TRUCO_SHORT = ["", "T", "RT", "V4"];
   const MARK = { sung: "?", accepted: "✓", rejected: "✕" };
@@ -135,16 +144,24 @@
           {#if i > 0 && i === Math.ceil(view.malas_max / 5)}<span
               class="mx-0.5 h-5 w-px bg-amber-100/30"
             ></span>{/if}
-          <span class="relative h-[18px] w-[18px] rounded-sm ring-1 ring-amber-100/10">
-            {#each SIDES.slice(0, count) as side, j (j)}
-              <img
-                src={FOSFORO}
-                alt=""
-                class="fosforo absolute h-[18px] w-[3px]"
-                style="{side}; --d: {j * 60}ms"
+          <svg
+            viewBox="0 0 18 18"
+            class="h-[18px] w-[18px] shrink-0 rounded-sm ring-1 ring-amber-100/10"
+            data-testid="tally-{team}"
+            data-count={count}
+          >
+            {#each SIDES.slice(0, count) as d, j (j)}
+              <path
+                {d}
+                class="stroke stroke-amber-100"
+                pathLength="1"
+                fill="none"
+                stroke-width="2"
+                stroke-linecap="round"
+                style="--d: {j * 60}ms"
               />
             {/each}
-          </span>
+          </svg>
         {/each}
         <span
           class="ml-auto text-[0.6rem] tracking-wide whitespace-nowrap {TEAM[team].text} uppercase"
@@ -208,15 +225,17 @@
     box-shadow: 0 10px 30px rgb(0 0 0 / 0.35);
     backdrop-filter: blur(3px);
   }
-  .fosforo {
-    transform-origin: center;
-    animation: strike 0.45s ease-out var(--d) both;
+  /* each stroke draws itself in */
+  .stroke {
+    stroke-dasharray: 1;
+    animation: draw 0.4s ease-out var(--d) both;
   }
-  @keyframes strike {
+  @keyframes draw {
     from {
-      opacity: 0;
-      filter: brightness(2.5);
-      scale: 1.6;
+      stroke-dashoffset: 1;
+    }
+    to {
+      stroke-dashoffset: 0;
     }
   }
   .gain {
@@ -247,7 +266,7 @@
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .fosforo,
+    .stroke,
     .gain,
     .sung {
       animation: none !important;

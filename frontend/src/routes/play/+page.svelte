@@ -14,7 +14,8 @@
   import { avatarPortrait, CHARACTER_NAMES, CHARACTERS, type Character } from "$lib/avatar/avatar";
   import BotManager from "$lib/components/BotManager.svelte";
   import ScoringEditor from "$lib/components/ScoringEditor.svelte";
-  import { drawTeamNames, saveToken } from "$lib/game";
+  import { drawTeamNames, pruneGames, saveHost } from "$lib/game";
+  import { joinSeat } from "$lib/gameSession.svelte";
   import { t, type MessageKey } from "$lib/i18n.svelte";
   import { profile, updateProfile } from "$lib/profile.svelte";
   import { scoringSetup } from "$lib/scoring";
@@ -112,18 +113,16 @@
       return;
     }
     const id = created.data.id;
-    // Local: this device takes every human seat. Online: only the first one.
+    pruneGames();
+    saveHost(id, created.data.host_token);
+    // Local: this device takes every human seat. Online: only the first one; the others join
+    // from the link, in the lobby. If a join fails the game still opens: the lobby can retry.
     for (const seat of where === "local" ? humans : humans.slice(0, 1)) {
-      const joined = await api.POST("/api/games/{game_id}/join", {
-        params: { path: { game_id: id } },
-        body: { seat, name: rows[seat].name },
-      });
-      if (joined.error || !joined.data) {
-        error = errorMessage(joined.error);
-        busy = false;
-        return;
+      const joined = await joinSeat(id, seat, rows[seat].name).catch(() => null);
+      if (!joined || "error" in joined) {
+        error = joined ? joined.error : t("game.offline");
+        break;
       }
-      saveToken(id, seat, joined.data.token);
     }
     await goto(`/play/${id}`);
   }
@@ -246,30 +245,13 @@
                     >
                   {/if}
                   {#if row.kind === "bot"}
-                    <span
-                      class="absolute -right-1 -bottom-1 flex h-5 w-5 items-center justify-center rounded-full bg-slate-800 text-amber-200 ring-2 ring-slate-950"
+                    <img
+                      class="absolute -right-1.5 -bottom-1.5 h-6 w-6"
+                      src="/ui/bot.svg"
+                      alt={t("play.bot")}
                       title={t("play.bot")}
                       data-testid="seat-bot-{i}"
-                    >
-                      <svg
-                        viewBox="0 0 24 24"
-                        class="h-3.5 w-3.5"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        aria-label={t("play.bot")}
-                        role="img"
-                        ><path d="M12 8V4H8" /><rect
-                          width="16"
-                          height="12"
-                          x="4"
-                          y="8"
-                          rx="2"
-                        /><path d="M2 14h2M20 14h2M15 13v2M9 13v2" /></svg
-                      >
-                    </span>
+                    />
                   {/if}
                 </div>
               </td>

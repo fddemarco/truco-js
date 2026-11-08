@@ -2,6 +2,7 @@
   import { SENA_NAMES } from "$lib/avatar/avatar";
   import type { GameEvent, GameView } from "$lib/api/client";
   import { LEAVE, LOUD } from "$lib/animation";
+  import { ACTION_LABELS } from "$lib/game";
   import { t } from "$lib/i18n.svelte";
   import Avatar from "./Avatar.svelte";
 
@@ -17,6 +18,7 @@
   const TEAM_TEXT = ["text-indigo-300", "text-rose-300"];
   // Newest first. Keys are the event's place in the whole log, so only new rows animate in.
   const events = $derived(view.events.map((e, n) => ({ e, n })).reverse());
+  const nameOf = (seat: number) => (seat === view.me ? t("game.you") : view.seats[seat].name);
   const teamOf = (e: GameEvent) => (e.seat != null ? view.seats[e.seat].team : null);
 
   /** How a plain move reads: answers, cantos and the mazo each have their tone. */
@@ -73,19 +75,38 @@
           <span aria-hidden="true">{team === null ? "=" : "★"}</span>
         </li>
       {:else if e.kind === "envido_resuelto"}
-        <!-- the envido: a gold card with the points won -->
+        <!-- the envido: a gold card with the points won and everyone's envido -->
+        {@const won = (e.points?.[1] ?? 0) > (e.points?.[0] ?? 0) ? 1 : 0}
         <li
-          class="entry gold flex items-center gap-2 rounded-xl px-1.5 py-1 font-semibold text-amber-950"
+          class="entry gold flex flex-col gap-1 rounded-xl px-1.5 py-1 font-semibold text-amber-950"
           data-kind={e.kind}
         >
-          {@render who(e)}
-          <span class="flex-1"
-            >Envido{#if e.number != null}<span class="ml-1.5 font-mono font-black">{e.number}</span
-              >{:else if e.seat == null}<span class="ml-1.5 text-xs"
-                >{view.team_names[(e.points?.[1] ?? 0) > (e.points?.[0] ?? 0) ? 1 : 0]}</span
-              >{/if}</span
-          >
-          <span class="font-mono text-base font-black">+{Math.max(...(e.points ?? [0]))}</span>
+          <span class="flex items-center gap-2">
+            {@render who(e)}
+            <span class="flex-1"
+              >Envido{#if e.number != null}<span class="ml-1.5 font-mono font-black"
+                  >{e.number}</span
+                >{:else}<span class="ml-1.5 text-xs">{view.team_names[won]}</span>{/if}</span
+            >
+            <span class="font-mono text-base font-black">+{e.points?.[won] ?? 0}</span>
+          </span>
+          {#if e.tantos}
+            <span class="grid grid-cols-2 gap-x-3 pl-1 text-xs" data-testid="envido-tantos">
+              {#each e.tantos as n, seat (seat)}
+                {#if n !== null || view.seats[seat].in_play}
+                  <span
+                    class="flex justify-between gap-1 {seat === e.seat
+                      ? 'font-black'
+                      : 'font-medium'}"
+                    data-seat={seat}
+                  >
+                    <span class="truncate">{nameOf(seat)}</span>
+                    <span class="font-mono">{n ?? ACTION_LABELS.son_buenas}</span>
+                  </span>
+                {/if}
+              {/each}
+            </span>
+          {/if}
         </li>
       {:else if e.kind === "fin_mano"}
         <!-- the end of a mano: what each team scored -->
@@ -131,6 +152,18 @@
                     ? "text-amber-100/70 italic"
                     : ""}>{kind === "canto" ? `¡${text(e)}!` : text(e)}</span
           >
+          {#if e.stakes}
+            {@const [a, b, no] = e.stakes}
+            <span class="ml-auto text-xs whitespace-nowrap text-amber-100/80" data-testid="stakes">
+              <span class="text-emerald-300"
+                >{ACTION_LABELS.quiero}
+                {a === b
+                  ? `+${a}`
+                  : `${view.team_names[0]} +${a} / ${view.team_names[1]} +${b}`}</span
+              >
+              · <span class="text-red-300">{ACTION_LABELS.no_quiero} +{no}</span>
+            </span>
+          {/if}
         </li>
       {/if}
     {/each}

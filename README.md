@@ -2,7 +2,7 @@
 
 Truco tournament webapp with an RL-powered bot
 
-**Stack:** FastAPI · SQLModel/SQLite · pure-Python truco engine · SvelteKit + TypeScript + Tailwind
+**Stack:** FastAPI · SQLModel (SQLite locally, Postgres on Vercel) · pure-Python truco engine · SvelteKit + TypeScript + Tailwind
 
 The game follows the official [Se Pica TSA reglamento](docs/reglamento-truco-sepica.md).
 
@@ -25,7 +25,14 @@ make test           # pytest + vitest
 make lint           # ruff + typecheck + prettier
 make gen-api        # regenerate frontend API types after backend changes
 make clean          # wipe local data (SQLite)
+make gen-reqs       # regenerate requirements.txt (Vercel) after changing backend deps
 ```
+
+## Deploy to Vercel
+1. Import the repo in Vercel, root directory = repo root. `vercel.json` sets the build (SPA from `frontend/`), the Python function (`api/index.py`) and the rewrites.
+2. Add a Postgres database: Storage → Neon, connected to the project. It sets `DATABASE_URL` (use the pooled URL).
+3. Set `LOG_FILE=false` and `LOG_FORMAT=json` in the project's environment variables.
+4. Deploy. `/api/health` should return `{"status": "ok"}`, and tables are created on the first request.
 
 ## Project layout
 ```

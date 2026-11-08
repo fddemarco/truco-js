@@ -1,10 +1,12 @@
 from collections.abc import Callable
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Path
 from sqlmodel import Session
 
 from app.bots.settings import PRESETS, BotSettings
 from app.db import get_session
+from app.games import registry
 from app.games.characters import CHARACTER_NAMES, Character, assign_characters
 from app.games.schemas import (
     ActRequest,
@@ -20,16 +22,8 @@ from app.games.schemas import (
     SenaRequest,
     TokenRequest,
 )
-from app.games.session import (
-    Conflict,
-    Forbidden,
-    GameError,
-    GameSession,
-    Seat,
-    create_game,
-    get_game,
-    to_action,
-)
+from app.games.session import Conflict, Forbidden, GameError, GameSession, NotFound, Seat
+from app.games.views import to_action
 from app.models import BotConfig
 from app.truco.config import GameConfig
 from app.truco.envido import EnvidoCall
@@ -48,6 +42,11 @@ from app.truco.truco import TrucoCall
 
 router = APIRouter(prefix="/games", tags=["games"])
 
+# Tokens travel in headers, never in URLs, so access logs and proxies don't record them.
+SeatToken = Annotated[str, Header(alias="X-Seat-Token")]
+HostToken = Annotated[str, Header(alias="X-Host-Token")]
+SEAT = Path(ge=0, le=5)
+
 
 def _bot(setup: SeatSetup, session: Session) -> tuple[str | None, Character | None, BotSettings]:
     """A saved bot keeps its name and character; a preset plays as its seat's character."""
@@ -63,17 +62,13 @@ def _bot(setup: SeatSetup, session: Session) -> tuple[str | None, Character | No
     return None, None, preset.settings
 
 
-def _game(game_id: str) -> GameSession:
-    game = get_game(game_id)
-    if game is None:
-        raise HTTPException(404, "Game not found")
-    return game
-
-
-def _run[T](fn: Callable[[], T]) -> T:
-    """Call into the session, mapping its errors to HTTP status codes."""
+def _run[T](game_id: str, fn: Callable[[GameSession], T], since: int | None = None) -> T:
+    """Call into the game (loaded and saved by the registry), mapping its errors to HTTP
+    status codes."""
     try:
-        return fn()
+        return registry.run(game_id, fn, since)
+    except NotFound as e:
+        raise HTTPException(404, str(e)) from e
     except Forbidden as e:
         raise HTTPException(403, str(e)) from e
     except Conflict as e:
@@ -146,45 +141,56 @@ def new_game(body: GameCreate, session: Session = Depends(get_session)) -> GameC
             seats.append(Seat("human", name, character))
     names = (body.team_names[0], body.team_names[1]) if body.team_names else None
     try:
-        game = create_game(GameConfig(mode=body.mode, scoring=_scoring(body.scoring)), seats, names)
+        config = GameConfig(mode=body.mode, scoring=_scoring(body.scoring))
+        game = registry.create_game(config, seats, names)
     except GameError as e:
         raise HTTPException(422, str(e)) from e
-    return GameCreated(id=game.id)
+    return GameCreated(id=game.id, host_token=game.host_token)
 
 
 @router.post("/{game_id}/join")
 def join_game(game_id: str, body: JoinRequest) -> Joined:
-    game = _game(game_id)
-    token = _run(lambda: game.join(body.seat, body.name))
+    token = _run(game_id, lambda game: game.join(body.seat, body.name, body.character))
     return Joined(seat=body.seat, token=token)
 
 
 @router.get("/{game_id}")
 def game_view(
-    game_id: str, token: str | None = None, look: int | None = None, since: int | None = None
+    game_id: str,
+    look: int | None = None,
+    since: int | None = None,
+    x_seat_token: Annotated[str | None, Header(alias="X-Seat-Token")] = None,
 ) -> GameView:
-    """`look`: the seat the viewer's camera is on; only its señas are visible (14.4).
+    """The table as the seat of `X-Seat-Token` sees it (none: a spectator).
+    `look`: the seat the viewer's camera is on; only its señas are visible (14.4).
     `since`: the last step the client has; the view carries the steps after it."""
-    game = _game(game_id)
-    return _run(lambda: game.view(token, look, since))
+    return _run(game_id, lambda game: game.view(x_seat_token, look, since), since)
 
 
 @router.post("/{game_id}/act")
-def act(game_id: str, body: ActRequest) -> GameView:
-    game = _game(game_id)
-    _run(lambda: game.act(body.token, to_action(body.action)))
-    return game.view(body.token, body.look, body.since)
+def act(game_id: str, body: ActRequest, token: SeatToken) -> GameView:
+    action = to_action(body.action)
+    return _run(game_id, lambda game: game.act(token, action, body.look, body.since), body.since)
 
 
 @router.post("/{game_id}/deal")
-def deal(game_id: str, body: TokenRequest) -> GameView:
-    game = _game(game_id)
-    _run(lambda: game.deal(body.token))
-    return game.view(body.token, body.look, body.since)
+def deal(game_id: str, body: TokenRequest, token: SeatToken) -> GameView:
+    """The cutter cuts: the next mano is dealt now instead of at `deal_at`."""
+    return _run(game_id, lambda game: game.deal(token, body.look, body.since), body.since)
 
 
 @router.post("/{game_id}/sena")
-def sena(game_id: str, body: SenaRequest) -> GameView:
-    game = _game(game_id)
-    _run(lambda: game.sena(body.token, body.sena, body.spot, body.duration_ms, body.target))
-    return game.view(body.token, body.look, body.since)
+def sena(game_id: str, body: SenaRequest, token: SeatToken) -> GameView:
+    return _run(
+        game_id,
+        lambda game: game.sena(
+            token, body.sena, body.spot, body.duration_ms, body.target, body.look, body.since
+        ),
+        body.since,
+    )
+
+
+@router.post("/{game_id}/seats/{seat}/reset")
+def reset_seat(game_id: str, host_token: HostToken, seat: Annotated[int, SEAT]) -> GameView:
+    """The host frees a human seat whose player lost their token; it can be joined again."""
+    return _run(game_id, lambda game: game.reset_seat(host_token, seat))

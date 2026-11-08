@@ -2,16 +2,19 @@
 
 ```
 app/
-  main.py        app factory; routers mounted under /api
-  config.py      Settings (env / ../.env): DATA_DIR, CORS_ORIGINS
-  db.py          SQLite engine + get_session dependency
-  models.py      SQLModel tables + Create/Update/Read schemas (BotConfig: saved bots, with an optional character)
+  main.py        app factory; routers mounted under /api (served on Vercel by ../api/index.py)
+  config.py      Settings (env / ../.env): DATA_DIR, DATABASE_URL, CORS_ORIGINS, logging
+  db.py          engine (SQLite in DATA_DIR, or Postgres from DATABASE_URL; tables created on first use) + get_session dependency
+  models.py      SQLModel tables + Create/Update/Read schemas (BotConfig: saved bots, with an optional character; GameRecord: a pickled running game with its optimistic `revision`; GameStep: one pickled step per row; both internal)
   routers/       one module per resource; each exposes `router` (health, bots, games, logs: frontend log intake)
   observability.py  structlog setup (console + JSON lines in DATA_DIR/logs/app.jsonl) + request-id middleware
   games/
-    session.py     GameSession: in-memory Match + seats (human tokens / bots), per-seat views, bots auto-play
+    session.py     GameSession: Match + seats (human tokens / bots), moves, steps, bots auto-play, the table's deal (deal_at / tick), host token + seat reset, presence
+    views.py       per-seat GameView, steps since `since`, card/action model conversions
+    registry.py    running games, stored only in the database: run() loads, deals if due, acts, saves (optimistic, retried); sweep of idle games
     schemas.py     API models for game setup, actions and views
     characters.py  Character (the six avatars) + display names, assign_characters (no repeats), team names
+    stats.py       PartidoLog (cards dealt + moves) and facts(): the end screen's fun facts
   bots/
     settings.py    BotSettings (card order, envido/truco policies + thresholds, bluff) + 5 PRESETS
     strategy.py    choose_action(hand, settings, rng, seat): local, non-cooperative, strict + interactive
@@ -39,7 +42,7 @@ tests/           pytest; the `client` fixture gives a TestClient on a tmp DATA_D
 - Step API (shared by UI and RL): `actions_for(seat)`, `apply(action, seat)`, `to_act`, `finished`, `points`. `Contest.phase` (`PLAYING`, `ANSWERING`, `DECLARING`, `FINISHED`) decides who acts and the legal moves; transitions go through `_enter` (see `docs/state-machine.md`). `Match.phase` is `MatchPhase`. `legal_actions()` and `apply(action)` default to `to_act`. `Match.deal()` starts a mano (and is the cut that closes reclamos), `Match.play(action, seat)` applies one, `Match.sena(event)` records an interactive seña.
 - `Action.kind` values are the Spanish expressions (`quiero`, `no_quiero`, `me_voy_al_mazo`, `real_envido`, `son_buenas`...).
 - Two rule modes (`GameConfig.mode`), chosen when a tournament or one-off game starts:
-  - **Strict** (RL, tight rules): only `to_act` acts, only the player in turn sings, envido is resolved automatically and truthfully, and a seña (`ActionKind.SENA`) is a free action once per turn that each teammate notices with probability `sena_notice_p` and each rival detects with `sena_leak_q` (`Contest.senas_seen(seat)`).
+  - **Strict** (RL, tight rules): only `to_act` acts, only the player in turn sings, envido is resolved automatically and truthfully, and a seña (`ActionKind.SENA`) is a free action once per turn that each teammate across the table notices with probability `sena_notice_p` and each rival across it detects with `sena_leak_q` (in redonda, faces on your own side can't be seen, 14.4) (`Contest.senas_seen(seat)`).
   - **Interactive** (multiplayer, real table, engine as referee): any active player may sing out of turn, and cantos fuera de turno lapse when a card is played. Irregular cantos can be objected (`objetar`), and the last canto can be pardoned by agreement. Envido is declared by the players with bluffing (`declarar`/`son_buenas`) and checked on `reclamar`. Also: `tapar`, `mostrar`, future-duelo concessions, and timed `SenaEvent`s; a seña from outside the duelo is interference.
 - The deal is automated, so physical incidents (dealing errors, cutting, dropped/lost cards) are not modelled.
 - `Contest.truco_calls` is the truco chain sung (a jump left unobjected is its own chain), for its points.
@@ -48,24 +51,27 @@ tests/           pytest; the `client` fixture gives a TestClient on a tmp DATA_D
   - Envido can't be sung once a truco is querido.
 
 ## Games and multiplayer
-- `/api/games`: create (mode + 6 seats, human or bot, optional character per seat, team names and `scoring`: target + chains; tournaments always use the reglamento), `GET /api/games/scoring` (the chains with the reglamento's points), join a seat (returns a token), get the view (`?token=` for a seat's private cards and actions), act, deal the next mano, interactive señas.
-- Sessions are in memory: restarting the API drops running games. Clients poll the view (`version` changes on every move). Every move (action or deal) closes a `Step`: its events plus the view of each human seat and a spectator right after it. A view carries the steps after the request's `since`; without `since` (arriving), the current mano's steps since the viewer's last move, from `base`. Clients show those views as they animate; they never rebuild state from events. A device holding every human token is local multiplayer; one token per device is online multiplayer.
-- Characters: chosen ones are kept (a repeat loses it), a saved bot brings its own, the rest take a free one. A preset bot is named after its character, a saved bot keeps its name. Team names are drawn from a list unless given. The view has `team_names`, `mano` and `pie`.
-- Bots play right after each human move, while `to_act` is a bot. A game starts once every human seat has joined; the first mano is dealt by the table (`deal`, after the shuffle and cut) like every other one.
+- `/api/games`: create (mode + 6 seats, human or bot, optional character per seat, team names and `scoring`: target + chains; tournaments always use the reglamento; returns the id and the `host_token`), `GET /api/games/scoring` (the chains with the reglamento's points), join a seat (name, optional character kept if free; returns a token), get the view, act, cut (`/deal`), interactive señas, `/seats/{seat}/reset` (host only).
+- Tokens travel in headers, never in URLs: `X-Seat-Token` (a seat's private cards and actions; required on moves, optional on GET: none is a spectator) and `X-Host-Token` (seat reset). Errors: unknown token 403, missing header 422.
+- **Stateless, for serverless (Vercel):** nothing about a game lives in process memory between requests and nothing runs between them. Every game route goes through `registry.run(game_id, fn, since)`: it loads the `GameRecord` (a pickled `GameSession`) and the `GameStep` rows the view can need (after `since`, or from the step before the current mano's deal, `deal_step`), deals if `deal_at` has passed, calls `fn`, and saves if the game changed. Saves are optimistic: `UPDATE ... WHERE revision = <loaded>`; if another request saved meanwhile, the whole request runs again on the fresh game (up to 3 times, then 409; `game.save_conflict`). A refused move saves nothing, except a deal the tick made. Steps older than the previous mano's deal are deleted. A row that no longer unpickles is dropped (`game.restore_failed`, then 404). Pickle is fine because the database is written only by this app, which makes `DATABASE_URL` a secret worth guarding. Idle games (`IDLE_TTL_S` since their last save, sooner once finished) are swept with their steps when a game is created (`game.swept`).
+- The deal is the server's: between manos `deal_at` (epoch ms, in the view with `cutter`) is set, 2 s after the mano for a bot cutter and 10 s for a human one, and the first request after it deals (`GameSession.tick(now)`, called by `registry.run`; clients poll every second, spectators too). The cutter (dealer's left) may cut sooner with `POST /deal`; anyone else gets 403. Tests deal at once with `registry.run(id, lambda g: g.tick(g.deal_at))` or patch `registry.now_ms`.
+- Presence: every view or move with a seat token stamps `Seat.last_seen_ms`; `SeatView.online` is a bot or a human seen within 20 s. A stamp alone is saved only once it moved 5 s (`PRESENCE_SAVE_MS`), so polls don't write every time. The host (who created the game) can free a human seat (`reset_seat`): its token stops working and the seat can be joined again from the link, mid-game too. A bot move that raises is logged (`game.bot_failed`) and replaced by its first legal move, so a strategy bug never fails the human's request or stalls the table. Clients poll the view every second (there is no push: serverless functions can't hold a stream). Every move (action or deal) closes a `Step`: its events plus the view of each human seat and a spectator right after it. A view carries the steps after the request's `since`; without `since` (arriving), the current mano's steps since the viewer's last move, from `base`. Clients show those views as they animate; they never rebuild state from events. A device holding every human token is local multiplayer; one token per device is online multiplayer.
+- Characters: chosen ones are kept (a repeat loses it), a saved bot brings its own, the rest take a free one. A preset bot is named after its character, a saved bot keeps its name. Team names are drawn from a list unless given. The view has `team_names`, `mano`, `pie` (§2, the last in the order) and `pies` (each team's last), and `stats` once the partido is over. Envido canto events carry `stakes` (quiero per winning team, no quiero); `envido_resuelto` carries the `tantos` the table heard (strict: said in turn from the real tantos by `said_in_order`, so a losing tanto is "son buenas" and never revealed, 11.5; interactive: declared); `reparto` carries the `hand_kind`.
+- Bots play right after each human move, while `to_act` is a bot. A game starts once every human seat has joined; the first mano is dealt by the table (at `deal_at`, or when the cutter cuts) like every other one.
 - Seating is a 3-3 table (`table.side`, `across`, `seats_across`): seats 0-1-2 on one side, 3-4-5 continuing around. A seat's view (`look` on GET and on every POST) only carries the señas of the player across its camera is on, plus its own; spectators see all. `SeatView.played` keeps each seat's cards of the mano (all duelos) until the next deal.
 
 ## Logging
 - Structured only: `log = structlog.get_logger("area")`, then `log.info("area.what", key=value, ...)`. Event names are dotted and stable; values are fields, never formatted into the message.
 - Every request has a `request_id` (from `X-Request-ID` or new), bound to all its lines and echoed in the response. Game lines carry `game_id` (and `seat`). `http.request` is the access log (status, duration_ms); polling GETs log at debug.
-- Settings: `LOG_LEVEL` (INFO), `LOG_FORMAT` (console | json), `LOG_FILE` (true). Frontend entries arrive via `POST /api/logs` with `source="frontend"` and `session_id`.
+- Settings: `LOG_LEVEL` (INFO), `LOG_FORMAT` (console | json), `LOG_FILE` (true; on a read-only filesystem it falls back to the console alone). Frontend entries arrive via `POST /api/logs` with `source="frontend"` and `session_id`.
 - Errors: `log.exception(...)` keeps the stack. Tests read logs with `structlog.testing.capture_logs()`.
 
 ## Conventions
 - Type every route's return value (`-> TeamRead`). FastAPI derives `response_model` and OpenAPI from it, which feeds the frontend types.
-- Use sync `def` routes. They run in a threadpool, and SQLite calls block.
+- Use sync `def` routes. They run in a threadpool, and database calls block.
 - Errors: `raise HTTPException(status, "message")`. The frontend shows `detail`.
 - New router: create `app/routers/<name>.py` with `router = APIRouter(prefix="/<name>", tags=["<name>"])`, then add it to the tuple in `app/main.py`.
-- New SQLite table: add a `table=True` model in `models.py`. `init_db()` creates tables on startup, and there are no migrations. For schema changes to existing tables during development, run `make clean` or add Alembic when the project needs it.
+- New table: add a `table=True` model in `models.py`. `init_db()` creates tables when the engine is first used (not in the lifespan, which serverless runtimes may skip) and adds new nullable columns to existing tables (`add_missing_columns`); there are no other migrations. For other schema changes, run `make clean` locally and drop the table in production, or add Alembic when the project needs it. Keep queries portable: SQLite locally, Postgres on Vercel (`TEST_DATABASE_URL=... uv run pytest` runs the suite on Postgres).
 
 ## Commands (from backend/)
 - `uv run pytest -q`, or `uv run pytest tests/truco/test_hand.py -k envido`

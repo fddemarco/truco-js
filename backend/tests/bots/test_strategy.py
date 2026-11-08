@@ -188,6 +188,20 @@ def test_interactive_bot_says_son_buenas_when_it_cannot_win():
     assert choose_action(h, BotSettings(), rng, seat=1) == Action(K.SON_BUENAS)
 
 
+def test_interactive_bot_declares_a_tie_it_wins_by_being_closer_to_mano():
+    # 11.6: seat 2 (24) stayed silent; seat 3 then declared 24. Seat 2 is closer to mano, so
+    # when the turn comes back the tie is theirs and the bot declares it.
+    h = interactive()
+    h.apply(Action(K.ENVIDO), 0)
+    h.apply(Action(K.QUIERO), 1)
+    h.apply(Action.declare(20), 0)
+    h.apply(Action(K.SON_BUENAS), 1)
+    h.apply(Action.declare(24), 3)
+    h.apply(Action(K.SON_BUENAS), 4)
+    assert h.to_act == 2
+    assert choose_action(h, BotSettings(), rng, seat=2) == Action.declare(24)
+
+
 def test_interactive_bot_objects_to_irregular_cantos_and_accepts_pardons():
     h = interactive()
     h.apply(Action(K.VALE_CUATRO), 0)

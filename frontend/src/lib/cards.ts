@@ -12,7 +12,6 @@ export const TRUCO_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 10, 11, 12] as const;
 
 export const CARD_BACK = "/cards/dorso.webp";
 export const COMODINES = ["/cards/comodin-1.webp", "/cards/comodin-2.webp"] as const;
-export const FOSFORO = "/ui/fosforo.svg";
 export const LOGO = "/logo.svg";
 
 const PLURAL: Record<Suit, string> = {

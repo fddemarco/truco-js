@@ -14,6 +14,8 @@
     /** The viewer's team: a thicker ring. */
     mine: boolean;
     role?: "mano" | "pie" | null;
+    /** A pie of the viewer's team (lighter silver) or of the rivals' (darker gray). */
+    ownPie?: boolean;
     turn?: boolean;
     acting?: boolean;
     sena?: { sena: Sena; spot: BodySpot };
@@ -27,6 +29,7 @@
     size,
     mine,
     role = null,
+    ownPie = false,
     turn = false,
     acting = false,
     sena,
@@ -41,9 +44,15 @@
 
 {#snippet icon(kind: "mano" | "pie")}
   <span
-    class="absolute -right-1 -bottom-1 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-slate-100 to-slate-400 text-slate-700 shadow ring-1 ring-white/70"
+    class="absolute -right-1 -bottom-1 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br shadow ring-1 {kind ===
+      'pie' && !ownPie
+      ? 'from-slate-400 to-slate-600 text-slate-100 ring-slate-300/60'
+      : kind === 'pie'
+        ? 'from-white to-slate-200 text-slate-600 ring-white/80'
+        : 'from-slate-100 to-slate-400 text-slate-700 ring-white/70'}"
     title={t(kind === "mano" ? "game.roleMano" : "game.rolePie")}
     data-testid="role-{kind}"
+    data-own={kind === "pie" ? ownPie : undefined}
   >
     {#if kind === "mano"}
       <svg
@@ -90,7 +99,7 @@
       : 'ring-2'} {role === 'mano'
       ? 'outline-double outline-4 outline-offset-2 outline-slate-300'
       : role === 'pie'
-        ? 'outline-dashed outline-2 outline-offset-4 outline-slate-300'
+        ? `outline-dashed outline-2 outline-offset-4 ${ownPie ? 'outline-slate-100' : 'outline-slate-500'}`
         : ''} {acting ? 'acting' : turn ? 'turn' : ''} {out ? 'opacity-40 grayscale' : ''}"
     aria-label={label}
     title="{label} · {t('game.number', { n: seat.number })}"
