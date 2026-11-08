@@ -18,8 +18,11 @@ def data_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     if TEST_DATABASE_URL:
         monkeypatch.setenv("DATABASE_URL", TEST_DATABASE_URL)
+        monkeypatch.setenv("STATE_KEY", "test-state-key-" + "x" * 32)
     else:
         monkeypatch.setenv("DATABASE_URL", "")  # also hides one in ../.env
+        monkeypatch.setenv("STATE_KEY", "")  # a key file in the tmp DATA_DIR
+    monkeypatch.setenv("TRUST_PROXY", "false")
     get_settings.cache_clear()
     db.get_engine.cache_clear()
     if TEST_DATABASE_URL:

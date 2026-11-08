@@ -79,6 +79,20 @@ def test_frontend_fields_cannot_clash_with_record_keys(client):
     assert entry["source"] == "frontend" and entry["session_id"] == "s-1" and entry["line"] == 7
 
 
+def test_a_frontend_request_id_cannot_pass_for_the_servers(client):
+    batch = {
+        "session_id": "s-1",
+        "entries": [
+            {"ts": "t", "level": "info", "event": "api.request", "fields": {"request_id": "c-9"}}
+        ],
+    }
+    with capture_logs() as logs:
+        res = client.post("/api/logs", json=batch, headers={"X-Request-ID": "srv-1"})
+        assert res.status_code == 204
+    [entry] = [e for e in logs if e.get("event") == "api.request"]
+    assert entry["client_request_id"] == "c-9" and "request_id" not in entry
+
+
 def test_frontend_log_batches_are_bounded(client):
     entry = {"ts": "t", "level": "info", "event": "x"}
     too_many = {"session_id": "s", "entries": [entry] * 101}

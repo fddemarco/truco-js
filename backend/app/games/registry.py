@@ -10,25 +10,27 @@ serve the same table.
   against the table as it is then), up to `SAVE_ATTEMPTS` times.
 - There is no clock: the table deals when a request (clients poll) finds `deal_at` passed.
 - A seat's presence stamp only costs a write once it moved `PRESENCE_SAVE_MS`.
-- Idle and finished games are swept when a game is created (`sweep`).
+- Idle and finished games are swept when a game is created (`sweep`); past `MAX_LIVE_GAMES`
+  unfinished ones, no game is created (`Full`).
 
-Pickle is fine: the database is written only by this app. On a hosted database that makes
-DATABASE_URL a secret worth guarding (whoever can write rows can run code here).
+Rows are pickles signed with STATE_KEY (app/signing.py) and unpickled only if the signature
+matches, so whoever can write the database still can't run code here. A row that doesn't
+verify or load drops its game.
 """
 
-import pickle
 import secrets
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import structlog
-from sqlalchemy import and_, or_, update
+from sqlalchemy import and_, func, or_, update
 from sqlmodel import Session, col, delete, select
 
 from app.db import get_engine
-from app.games.session import Conflict, GameSession, NotFound, Seat, now_ms
+from app.games.session import Conflict, GameError, GameSession, NotFound, Seat, now_ms
 from app.models import GameRecord, GameStep
+from app.signing import seal, unseal
 from app.truco.config import GameConfig
 
 log = structlog.get_logger("game")
@@ -37,6 +39,11 @@ IDLE_TTL_S = 6 * 3600  # a game nobody saved for this long is dropped
 FINISHED_TTL_S = 3600  # a finished one, sooner
 SAVE_ATTEMPTS = 3
 PRESENCE_SAVE_MS = 5000  # presence is shown with 20 s of slack (SeatView.online)
+MAX_LIVE_GAMES = 500  # unfinished games at once, so a flood can't fill the database
+
+
+class Full(GameError):
+    """Too many games are running to start another (HTTP 503)."""
 
 
 @dataclass
@@ -63,7 +70,13 @@ def create_game(
     sweep()
     game = GameSession(secrets.token_urlsafe(6), config, seats, team_names=team_names)
     with Session(get_engine()) as db:
-        db.add(GameRecord(id=game.id, state=pickle.dumps(game), finished=False))
+        live = db.exec(
+            select(func.count()).select_from(GameRecord).where(col(GameRecord.finished).is_(False))
+        ).one()
+        if live >= MAX_LIVE_GAMES:
+            log.warning("game.full", live=live)
+            raise Full("too many games are running, try again later")
+        db.add(GameRecord(id=game.id, state=seal(game), finished=False))
         db.commit()
     log.info(
         "game.created",
@@ -111,26 +124,26 @@ def _load(db: Session, game_id: str, since: int | None) -> _Loaded | None:
     if record is None:
         return None
     try:
-        game = pickle.loads(record.state)
+        game = unseal(record.state)
         if not isinstance(game, GameSession):
             raise TypeError(type(game).__name__)
+        if since is not None:
+            first = since + 1
+        elif game.deal_step is not None:
+            first = max(game.deal_step - 1, 0)  # the table before the deal is the replay's base
+        else:
+            first = game.next_step
+        rows = db.exec(
+            select(GameStep.state)
+            .where(GameStep.game_id == game_id, GameStep.index >= first)
+            .order_by(col(GameStep.index))
+        ).all()
+        game.steps = [unseal(row) for row in rows]
     except Exception:
         log.exception("game.restore_failed", game_id=game_id)
         _delete(db, [game_id])
         db.commit()
         return None
-    if since is not None:
-        first = since + 1
-    elif game.deal_step is not None:
-        first = max(game.deal_step - 1, 0)  # the table before the deal is the replay's base
-    else:
-        first = game.next_step
-    rows = db.exec(
-        select(GameStep.state)
-        .where(GameStep.game_id == game_id, GameStep.index >= first)
-        .order_by(col(GameStep.index))
-    ).all()
-    game.steps = [pickle.loads(row) for row in rows]
     return _Loaded(
         game=game,
         revision=record.revision,
@@ -144,7 +157,7 @@ def _save(db: Session, loaded: _Loaded) -> bool:
     """Save the game if nobody did since it was loaded; False if someone did."""
     game = loaded.game
     with game.lock:
-        state = pickle.dumps(game)
+        state = seal(game)
         steps = [s for s in game.steps if s.index >= loaded.next_step]
         finished = game.match.finished
         keep_from = game.previous_deal_step
@@ -162,7 +175,7 @@ def _save(db: Session, loaded: _Loaded) -> bool:
         db.rollback()
         return False
     for step in steps:
-        db.add(GameStep(game_id=game.id, index=step.index, state=pickle.dumps(step)))
+        db.add(GameStep(game_id=game.id, index=step.index, state=seal(step)))
     if steps and keep_from is not None:
         # Steps older than the last mano are never asked for again.
         db.exec(

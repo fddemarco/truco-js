@@ -6,6 +6,7 @@
   import Avatar from "./Avatar.svelte";
   import type { BotDraft } from "$lib/bots";
   import BotConfigurator from "./BotConfigurator.svelte";
+  import { botToken, forgetBotToken, saveBotToken } from "$lib/botTokens";
 
   /** Saved bots changed (saved or deleted): a new game's seats offer them. */
   let { onChange }: { onChange?: () => void } = $props();
@@ -29,13 +30,28 @@
     await loadSaved();
   });
 
+  /** Bots saved from this browser: only their creator can change them. */
+  function owned(bot: BotConfig): boolean {
+    return botToken(bot.id) !== null;
+  }
+
+  function ownerHeader(id: number) {
+    return { "X-Bot-Token": botToken(id) ?? "" };
+  }
+
   async function save(bot: BotDraft): Promise<string | null> {
     const id = editor?.id ?? null;
-    const res =
-      id === null
-        ? await api.POST("/api/bots", { body: bot })
-        : await api.PUT("/api/bots/{bot_id}", { params: { path: { bot_id: id } }, body: bot });
-    if (res.error) return errorMessage(res.error);
+    if (id === null) {
+      const res = await api.POST("/api/bots", { body: bot });
+      if (res.error) return errorMessage(res.error);
+      saveBotToken(res.data.id, res.data.token);
+    } else {
+      const res = await api.PUT("/api/bots/{bot_id}", {
+        params: { path: { bot_id: id }, header: ownerHeader(id) },
+        body: bot,
+      });
+      if (res.error) return errorMessage(res.error);
+    }
     await loadSaved();
     onChange?.();
     editor = null;
@@ -44,16 +60,20 @@
 
   async function remove(bot: BotConfig) {
     if (!confirm(t("bots.confirmDelete", { name: bot.name }))) return;
-    const res = await api.DELETE("/api/bots/{bot_id}", { params: { path: { bot_id: bot.id } } });
+    const res = await api.DELETE("/api/bots/{bot_id}", {
+      params: { path: { bot_id: bot.id }, header: ownerHeader(bot.id) },
+    });
     if (res.error) error = errorMessage(res.error);
+    else forgetBotToken(bot.id);
     await loadSaved();
     onChange?.();
   }
 
-  function duplicate(p: BotPreset) {
+  function duplicate(p: BotPreset | BotConfig) {
+    const character = "character" in p ? p.character : null;
     editor = {
       id: null,
-      draft: { name: t("bots.copyOf", { name: p.name }), character: null, settings: p.settings },
+      draft: { name: t("bots.copyOf", { name: p.name }), character, settings: p.settings },
     };
   }
 </script>
@@ -107,15 +127,21 @@
               </div>
             {/if}
             <span class="flex-1 font-semibold">{bot.name}</span>
-            <button
-              class="btn"
-              onclick={() =>
-                (editor = {
-                  id: bot.id,
-                  draft: { name: bot.name, character: bot.character, settings: bot.settings },
-                })}>{t("bots.editShort")}</button
-            >
-            <button class="btn btn-danger" onclick={() => remove(bot)}>{t("bots.delete")}</button>
+            {#if owned(bot)}
+              <button
+                class="btn"
+                onclick={() =>
+                  (editor = {
+                    id: bot.id,
+                    draft: { name: bot.name, character: bot.character, settings: bot.settings },
+                  })}>{t("bots.editShort")}</button
+              >
+              <button class="btn btn-danger" onclick={() => remove(bot)}>{t("bots.delete")}</button>
+            {:else}
+              <button class="btn" title={t("bots.notYours")} onclick={() => duplicate(bot)}
+                >{t("bots.duplicate")}</button
+              >
+            {/if}
           </li>
         {/each}
       </ul>

@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.observability import RequestContextMiddleware, configure_logging, log
 from app.routers import bots, games, health, logs
+from app.signing import state_key
 
 
 @asynccontextmanager
@@ -21,6 +22,7 @@ async def lifespan(_: FastAPI):
 def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings)
+    state_key()  # a deploy without STATE_KEY fails here, not on its first game
     app = FastAPI(title="Truco", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,

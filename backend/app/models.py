@@ -26,6 +26,9 @@ class BotConfig(SQLModel, table=True):
     name: str = Field(index=True, unique=True)
     settings: dict[str, Any] = Field(sa_column=Column(JSON))
     character: str | None = None  # its avatar; None = whichever is free at the table
+    # SHA-256 of the token its creator got, needed to change or delete it. None: saved before
+    # tokens, so nobody can (it can still be played and duplicated).
+    owner: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
 
 
@@ -51,9 +54,15 @@ class BotConfigRead(SQLModel):
     created_at: datetime
 
 
+class BotConfigCreated(BotConfigRead):
+    """A new bot, with the token that changes or deletes it (`X-Bot-Token`). Shown only once."""
+
+    token: str
+
+
 class GameRecord(SQLModel, table=True):
-    """A running game, pickled by app/games/registry.py: every request loads it and saves it
-    back. Internal: never returned by the API."""
+    """A running game, pickled and signed by app/games/registry.py: every request loads it and
+    saves it back. Internal: never returned by the API."""
 
     id: str = Field(primary_key=True)
     state: bytes
@@ -70,3 +79,11 @@ class GameStep(SQLModel, table=True):
     game_id: str = Field(primary_key=True)
     index: int = Field(primary_key=True)
     state: bytes
+
+
+class RateHit(SQLModel, table=True):
+    """One request counted by app/ratelimit.py. Internal."""
+
+    id: int | None = Field(default=None, primary_key=True)
+    key: str = Field(index=True)  # bucket + keyed hash of the client's address
+    at: datetime = Field(default_factory=utcnow, index=True)

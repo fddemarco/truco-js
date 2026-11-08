@@ -12,6 +12,7 @@ from app.db import get_engine
 from app.games import registry
 from app.games.session import Conflict, Forbidden, GameSession, NotFound
 from app.models import GameRecord, GameStep
+from app.signing import seal
 from app.truco.config import GameConfig, RuleMode
 from app.truco.match import ResultKind
 from tests.test_session import seats
@@ -151,13 +152,65 @@ def test_a_row_that_no_longer_loads_is_dropped(data_dir):
     game = registry.create_game(GameConfig(), seats())
     with Session(get_engine()) as db:
         record = db.get(GameRecord, game.id)
-        record.state = pickle.dumps({"not": "a game"})
+        record.state = seal({"not": "a game"})
         db.add(record)
         db.commit()
     with capture_logs() as logs, pytest.raises(NotFound):
         registry.run(game.id, lambda g: g.view())
     assert any(e["event"] == "game.restore_failed" for e in logs)
     assert game.id not in records()
+
+
+RAN: list[str] = []
+
+
+def _ran(what: str) -> None:
+    RAN.append(what)
+
+
+class Payload:
+    """Unpickling this calls `_ran`: what a row forged in the database would do."""
+
+    def __reduce__(self):
+        return (_ran, ("payload",))
+
+
+def test_a_forged_game_row_is_never_unpickled(data_dir):
+    game = registry.create_game(GameConfig(), seats())
+    with Session(get_engine()) as db:
+        record = db.get(GameRecord, game.id)
+        record.state = pickle.dumps(Payload())
+        db.add(record)
+        db.commit()
+    with capture_logs() as logs, pytest.raises(NotFound):
+        registry.run(game.id, lambda g: g.view())
+    assert RAN == []
+    assert any(e["event"] == "game.restore_failed" for e in logs)
+    assert game.id not in records()
+
+
+def test_a_forged_step_row_is_never_unpickled(data_dir):
+    game = registry.create_game(GameConfig(), seats())
+    registry.run(game.id, lambda g: g.join(0))
+    [first, *_] = step_indexes(game.id)
+    with Session(get_engine()) as db:
+        step = db.get(GameStep, (game.id, first))
+        # Signed with another key: only the app's key counts.
+        step.state = b"\0" * 32 + pickle.dumps(Payload())
+        db.add(step)
+        db.commit()
+    with pytest.raises(NotFound):
+        registry.run(game.id, lambda g: g.view(), since=first - 1)
+    assert RAN == []
+    assert game.id not in records()
+
+
+def test_no_game_starts_past_the_live_games_cap(data_dir, monkeypatch):
+    monkeypatch.setattr(registry, "MAX_LIVE_GAMES", 2)
+    registry.create_game(GameConfig(), seats())
+    registry.create_game(GameConfig(), seats())
+    with pytest.raises(registry.Full):
+        registry.create_game(GameConfig(), seats())
 
 
 def age(game_id: str, seconds: float) -> None:

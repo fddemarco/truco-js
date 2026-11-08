@@ -25,6 +25,7 @@ from app.games.schemas import (
 from app.games.session import Conflict, Forbidden, GameError, GameSession, NotFound, Seat
 from app.games.views import to_action
 from app.models import BotConfig
+from app.ratelimit import rate_limited
 from app.truco.config import GameConfig
 from app.truco.envido import EnvidoCall
 from app.truco.scoring import (
@@ -124,7 +125,7 @@ def scoring_info() -> ScoringInfo:
     )
 
 
-@router.post("", status_code=201)
+@router.post("", status_code=201, dependencies=[rate_limited("games")])
 def new_game(body: GameCreate, session: Session = Depends(get_session)) -> GameCreated:
     bots = {i: _bot(s, session) for i, s in enumerate(body.seats) if s.kind == "bot"}
     wanted = [s.character or (bots[i][1] if i in bots else None) for i, s in enumerate(body.seats)]
@@ -143,6 +144,8 @@ def new_game(body: GameCreate, session: Session = Depends(get_session)) -> GameC
     try:
         config = GameConfig(mode=body.mode, scoring=_scoring(body.scoring))
         game = registry.create_game(config, seats, names)
+    except registry.Full as e:
+        raise HTTPException(503, str(e)) from e
     except GameError as e:
         raise HTTPException(422, str(e)) from e
     return GameCreated(id=game.id, host_token=game.host_token)

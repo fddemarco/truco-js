@@ -1,8 +1,9 @@
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -17,6 +18,14 @@ class Settings(BaseSettings):
     # pooled URL); `postgres://` URLs are taken as they come from the provider.
     database_url: str | None = None
     cors_origins: list[str] = ["http://localhost:5173"]
+    # Signs the game state stored in the database (app/signing.py): a row the app didn't sign
+    # is never unpickled. Required with DATABASE_URL; locally, DATA_DIR/state.key is made on
+    # first use. At least 32 characters (`openssl rand -base64 32`).
+    state_key: str | None = None
+    # Take the client's address from X-Forwarded-For (rate limits, app/ratelimit.py). Only
+    # behind a proxy that sets it, as Vercel's edge does (on by default there); otherwise a
+    # client could forge it.
+    trust_proxy: bool = Field(default_factory=lambda: bool(os.environ.get("VERCEL")))
     # Logging (see app/observability.py): level, console format, and the JSON-lines file in
     # DATA_DIR/logs/app.jsonl.
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
@@ -36,6 +45,15 @@ class Settings(BaseSettings):
         for scheme in ("postgres://", "postgresql://"):
             if value.startswith(scheme):
                 return "postgresql+psycopg://" + value.removeprefix(scheme)
+        return value
+
+    @field_validator("state_key")
+    @classmethod
+    def _long_enough(cls, value: str | None) -> str | None:
+        if not value:
+            return None
+        if len(value) < 32:
+            raise ValueError("STATE_KEY must be at least 32 characters")
         return value
 
     @property

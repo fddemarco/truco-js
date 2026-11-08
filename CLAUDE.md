@@ -46,7 +46,7 @@ Run Python through uv (`cd backend && uv run ...`) and JS through pnpm (`cd fron
 
 ## Deploy (Vercel)
 
-One Vercel project from the repo root (`vercel.json`): the SPA is built from `frontend/` to static files, and `api/index.py` serves the FastAPI app as a Python function for every `/api/*` request. Python dependencies come from the root `requirements.txt` (exported from `backend/uv.lock`), the Python version from `.python-version`. Env vars in Vercel: `DATABASE_URL` (the Neon integration's pooled Postgres URL), `LOG_FILE=false`, `LOG_FORMAT=json`. Tables are created on first use; there are no migrations, so a new NOT NULL column needs its table dropped (locally: `make clean`).
+One Vercel project from the repo root (`vercel.json`): the SPA is built from `frontend/` to static files, and `api/index.py` serves the FastAPI app as a Python function for every `/api/*` request. Python dependencies come from the root `requirements.txt` (exported from `backend/uv.lock`), the Python version from `.python-version`. Env vars in Vercel: `DATABASE_URL` (the Neon integration's pooled Postgres URL), `STATE_KEY` (required: signs the stored game state, `openssl rand -base64 32`), `LOG_FILE=false`, `LOG_FORMAT=json`. Tables are created on first use; there are no migrations, so a new NOT NULL column needs its table dropped (locally: `make clean`).
 
 ## Rules
 

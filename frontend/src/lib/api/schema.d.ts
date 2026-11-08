@@ -317,6 +317,25 @@ export interface components {
       settings: components["schemas"]["BotSettings-Input"];
       character?: components["schemas"]["Character"] | null;
     };
+    /**
+     * BotConfigCreated
+     * @description A new bot, with the token that changes or deletes it (`X-Bot-Token`). Shown only once.
+     */
+    BotConfigCreated: {
+      /** Id */
+      id: number;
+      /** Name */
+      name: string;
+      settings: components["schemas"]["BotSettings-Output"];
+      character: components["schemas"]["Character"] | null;
+      /**
+       * Created At
+       * Format: date-time
+       */
+      created_at: string;
+      /** Token */
+      token: string;
+    };
     /** BotConfigRead */
     BotConfigRead: {
       /** Id */
@@ -1065,7 +1084,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["BotConfigRead"];
+          "application/json": components["schemas"]["BotConfigCreated"];
         };
       };
       /** @description Validation Error */
@@ -1082,7 +1101,9 @@ export interface operations {
   update_bot_api_bots__bot_id__put: {
     parameters: {
       query?: never;
-      header?: never;
+      header: {
+        "X-Bot-Token": string;
+      };
       path: {
         bot_id: number;
       };
@@ -1117,7 +1138,9 @@ export interface operations {
   delete_bot_api_bots__bot_id__delete: {
     parameters: {
       query?: never;
-      header?: never;
+      header: {
+        "X-Bot-Token": string;
+      };
       path: {
         bot_id: number;
       };
