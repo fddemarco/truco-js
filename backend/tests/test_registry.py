@@ -14,8 +14,14 @@ from app.games.session import Conflict, Forbidden, GameSession, NotFound
 from app.models import GameRecord, GameStep
 from app.signing import seal
 from app.truco.config import GameConfig, RuleMode
-from app.truco.match import ResultKind
 from tests.test_session import seats
+
+
+def load(game_id: str) -> GameSession | None:
+    """The game as stored (read only: nothing is dealt or saved)."""
+    with Session(get_engine()) as db:
+        loaded = registry._load(db, game_id, None)
+        return loaded.game if loaded else None
 
 
 def records() -> dict[str, GameRecord]:
@@ -39,7 +45,7 @@ def into_a_mano(game_id: str, humans: int) -> list[str]:
 def test_a_game_goes_on_across_requests(data_dir, mode):
     game = registry.create_game(GameConfig(mode=mode), seats(humans=6))
     tokens = into_a_mano(game.id, 6)
-    seat = registry.load(game.id).match.hand.to_act
+    seat = load(game.id).match.hand.to_act
     before = registry.run(game.id, lambda g: g.view(tokens[seat]))
 
     def play(g: GameSession):
@@ -81,7 +87,7 @@ def test_a_save_that_lost_the_race_runs_again(data_dir):
         registry.run(game.id, join)
     assert calls == [0, 1]  # the second run saw the other join
     assert any(e["event"] == "game.save_conflict" for e in logs)
-    stored = registry.load(game.id)
+    stored = load(game.id)
     assert stored.seats[0].joined and stored.seats[1].joined
 
 
@@ -100,12 +106,12 @@ def test_a_table_that_keeps_changing_is_a_conflict(data_dir):
 def test_a_request_after_the_wait_deals_and_saves(data_dir, monkeypatch):
     game = registry.create_game(GameConfig(), seats())
     registry.run(game.id, lambda g: g.join(0))
-    deal_at = registry.load(game.id).deal_at
+    deal_at = load(game.id).deal_at
     assert deal_at is not None
     assert registry.run(game.id, lambda g: g.match.hand) is None  # not yet
     monkeypatch.setattr(registry, "now_ms", lambda: deal_at)
     registry.run(game.id, lambda g: g.view())  # a spectator's poll is enough
-    stored = registry.load(game.id)
+    stored = load(game.id)
     assert stored.match.history or stored.match.hand is not None
 
 
@@ -136,7 +142,7 @@ def test_only_the_last_manos_steps_are_kept(data_dir):
     deals: list[int] = []
     for _ in range(500):
         registry.run(game.id, advance)
-        stored = registry.load(game.id)
+        stored = load(game.id)
         if stored.match.finished:
             break
         if stored.deal_step is not None and stored.deal_step not in deals:
@@ -226,7 +232,7 @@ def test_idle_and_finished_games_are_swept_with_their_steps(data_dir):
     registry.run(idle.id, lambda g: g.join(0))
     assert step_indexes(idle.id)
     over = registry.create_game(GameConfig(), seats())
-    registry.run(over.id, lambda g: g.match.forfeit(1, ResultKind.ABANDONO) or g._touch())
+    registry.run(over.id, lambda g: (g.match.warn(1), g.match.warn(1), g._touch()))
     live = registry.create_game(GameConfig(), seats())
 
     age(idle.id, registry.IDLE_TTL_S + 1)

@@ -91,7 +91,7 @@ def test_second_disciplinary_warning_loses_the_partido():
     assert m.result.kind == ResultKind.SANCION and m.result.winner == 0
 
 
-def test_sanctions_apply_until_homologation():
+def test_sanctions_override_a_sporting_result():
     m = Match(first_dealer=5, rng=random.Random(1))
     m.score = [0, 29]
     m.deal()
@@ -100,25 +100,8 @@ def test_sanctions_apply_until_homologation():
     m.warn(1)
     m.warn(1)
     assert m.result.kind == ResultKind.SANCION and m.result.winner == 0
-    m.homologate()
-    with pytest.raises(MatchError):
+    with pytest.raises(MatchError):  # the administrative result stands
         m.warn(0)
-
-
-def test_disqualification_and_forfeits():
-    m = Match(first_dealer=0)
-    m.disqualify(0, 1)
-    assert m.result.kind == ResultKind.DOBLE_DESCALIFICACION and m.result.winner is None
-
-    m = Match(first_dealer=0)
-    m.disqualify(0)
-    assert m.result.kind == ResultKind.DESCALIFICACION and m.result.winner == 1
-
-    m = Match(first_dealer=0)
-    m.forfeit(1, ResultKind.AUSENCIA)
-    assert m.result.winner == 0 and m.result.administrative
-    with pytest.raises(ValueError):
-        Match(first_dealer=0).forfeit(1, ResultKind.SANCION)
 
 
 @pytest.mark.parametrize("seed", range(40))

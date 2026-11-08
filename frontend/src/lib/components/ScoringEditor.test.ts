@@ -12,9 +12,6 @@ const c = (family: "envido" | "truco", chain: string[], quiero: number | null, n
 });
 const INFO: ScoringInfo = {
   target: 30,
-  min_target: 10,
-  max_target: 60,
-  max_points: 60,
   chains: [
     c("envido", ["envido"], 2, 1),
     c("envido", ["real_envido"], 3, 1),

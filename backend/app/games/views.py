@@ -63,7 +63,6 @@ def build_view(game: "GameSession", me: int | None, look: int | None, now: int) 
         version=game.version,
         server_ms=now,
         started=game.started,
-        match_phase=m.phase,
         seats=seats,
         team_names=list(game.team_names),
         score=list(m.score),

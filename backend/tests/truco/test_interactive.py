@@ -321,7 +321,7 @@ def test_duelo_reclamos_close_even_after_a_conceded_duelo():
     p.apply(Action.declare(33), 0)
     act(p, 3, K.SON_BUENAS)
     act(p, 0, K.MAZO)
-    assert p.duel_number == 3 and p.duels[0].claims_open
+    assert len(p.duels) == 3 and p.duels[0].claims_open
     p.apply(Action.play(HANDS[2][0]), 2)
     assert not p.duels[0].claims_open
 
@@ -381,7 +381,7 @@ def test_interference_by_both_annuls_the_duelo():
     m = pica_pica_match()
     m.sena(sena(0))
     m.sena(sena(1))
-    assert m.hand.duels[0].annulled and m.hand.duels[0].points == [0, 0]
+    assert m.hand.duels[0].points == [0, 0]
     assert m.warnings == [1, 1]
     assert m.hand.current.seats == [3, 0]
 

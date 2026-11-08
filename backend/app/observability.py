@@ -4,7 +4,10 @@ Every log line is a structured event (an `event` name plus key-value fields), ne
 formatted sentence, so it can be filtered and joined:
 
 - Console: readable key=value lines in development, JSON when `LOG_FORMAT=json`.
-- File: always JSON lines in `DATA_DIR/logs/app.jsonl` (rotated), for tooling and debugging.
+- File: always JSON lines in `DATA_DIR/logs/app.jsonl`, for tooling and debugging. Rotated at
+  `LOG_MAX_MB`, keeping `LOG_BACKUPS` files; `make dev` rolls it over first
+  (`python -m app.observability rotate`), so each dev run starts on an empty file and the
+  previous run is `app.jsonl.1`. Not on reload: a code edit doesn't split a session.
 - Context: `request_id` (from the `X-Request-ID` header, or a new one), and `game_id` / `seat`
   where a game is involved, are bound per request with contextvars and added to every line
   logged while handling it, including uvicorn's and the stdlib's.
@@ -78,12 +81,8 @@ def configure_logging(settings: Settings) -> None:
     )
     handlers: list[logging.Handler] = [console]
     if settings.log_file:
-        path = settings.data_dir / "logs" / "app.jsonl"
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            file = logging.handlers.RotatingFileHandler(
-                path, maxBytes=5_000_000, backupCount=3, encoding="utf-8"
-            )
+            file = _file_handler(settings)
         except OSError as e:  # a read-only filesystem (serverless): the console is enough
             print(f"log file disabled: {e}", file=sys.stderr)
         else:
@@ -98,6 +97,30 @@ def configure_logging(settings: Settings) -> None:
     for name in ("uvicorn", "uvicorn.error"):
         logging.getLogger(name).handlers = []
         logging.getLogger(name).propagate = True
+
+
+def _file_handler(settings: Settings) -> logging.handlers.RotatingFileHandler:
+    path = settings.log_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return logging.handlers.RotatingFileHandler(
+        path,
+        maxBytes=int(settings.log_max_mb * 1_000_000),
+        backupCount=settings.log_backups,
+        encoding="utf-8",
+    )
+
+
+def rotate_log(settings: Settings) -> None:
+    """Start the log file afresh: the current one becomes `app.jsonl.1` (older ones shift, the
+    oldest past LOG_BACKUPS is deleted). Nothing to do for an empty or missing file."""
+    path = settings.log_path
+    if not settings.log_file or not path.exists() or path.stat().st_size == 0:
+        return
+    handler = _file_handler(settings)
+    try:
+        handler.doRollover()
+    finally:
+        handler.close()
 
 
 class RequestContextMiddleware:
@@ -151,3 +174,11 @@ class RequestContextMiddleware:
             else:
                 log.info("http.request", **fields)
             structlog.contextvars.clear_contextvars()
+
+
+if __name__ == "__main__":  # `python -m app.observability rotate` (make dev)
+    from app.config import get_settings
+
+    if sys.argv[1:] != ["rotate"]:
+        sys.exit("usage: python -m app.observability rotate")
+    rotate_log(get_settings())

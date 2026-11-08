@@ -35,7 +35,6 @@ contest at once (11.10); a team leaving entirely folds pending cantos (8.5).
    `_anytime`), mode differences as explicit branches.
 3. Done: `phase` is stored; `_enter(phase)` replaces `finished` / `declaration` / `_blocking()`
    checks (`finished` is now a property).
-4. Done: `PicaPicaHand.phase` (the current duelo's) + `duel_number`, `Match.phase`
-   (`MatchPhase`), both derived from their few flags, which are simple enough not to need
-   explicit transitions. `GameView` carries `phase` and `match_phase`; the UI prompt and the
-   bot read them.
+4. Done: `PicaPicaHand.phase` (the current duelo's), derived from its few flags, which are
+   simple enough not to need explicit transitions. `GameView` carries `phase`; the UI prompt
+   and the bot read it.

@@ -17,7 +17,7 @@ import { t } from "$lib/i18n.svelte";
 import { log } from "$lib/log";
 
 export const POLL_MS = 1000;
-export const CUT_MS = 700; // the cut's animation before the deal is asked for
+const CUT_MS = 700; // the cut's animation before the deal is asked for
 
 const seatHeader = (token: string) => ({ "X-Seat-Token": token });
 

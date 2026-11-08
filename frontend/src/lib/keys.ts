@@ -195,12 +195,6 @@ export function keyHint(kind: ActionKind, bindings: Bindings): string | null {
   return command && bindings[command] ? keyLabel(bindings[command]) : null;
 }
 
-/** The key label for the i-th card in hand. */
-export function cardKeyHint(i: number, bindings: Bindings): string | null {
-  const command = (["card1", "card2", "card3"] as const)[i];
-  return command && bindings[command] ? keyLabel(bindings[command]) : null;
-}
-
 /** The command bound to a key, if any. */
 export function commandForCode(code: string, bindings: Bindings): Command | null {
   return COMMANDS.find((c) => bindings[c] === code) ?? null;

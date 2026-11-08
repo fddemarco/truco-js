@@ -15,9 +15,9 @@ export const HUMAN_MS = 700;
 export const BANNER_MS = 1600;
 /** A new deal: the last mano's cards go back to the mazo (SWEEP_MS), then out to everyone. */
 export const SWEEP_MS = 900;
-export const DEAL_MS = SWEEP_MS + 1500;
+const DEAL_MS = SWEEP_MS + 1500;
 /** A bot thinks this long before it acts, so each of its moves takes 1-2 s. */
-export const THINK_MS: [number, number] = [450, 1350];
+const THINK_MS: [number, number] = [450, 1350];
 
 export interface Beat {
   /** Unique within a page, to restart CSS animations. */

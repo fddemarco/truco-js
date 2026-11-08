@@ -8,7 +8,7 @@ reclamos (11.7, 15.9).
 
 from app.truco.config import GameConfig, RuleMode
 from app.truco.hand import Action, ActionKind, Contest, Phase, PicaPicaHand
-from app.truco.match import Match, MatchPhase, ResultKind
+from app.truco.match import Match
 from app.truco.signals import Sena
 from app.truco.table import order_from
 from tests.truco.test_hand import HANDS
@@ -200,27 +200,14 @@ def test_reaching_30_finishes_at_once():
 
 def test_pica_pica_phase_follows_the_current_duelo():
     p = PicaPicaHand(HANDS, mano=0)
-    assert p.phase is Phase.PLAYING and p.duel_number == 1
+    assert p.phase is Phase.PLAYING and len(p.duels) == 1
     p.apply(Action(K.MAZO))
-    assert p.phase is Phase.PLAYING and p.duel_number == 2
+    assert p.phase is Phase.PLAYING and len(p.duels) == 2
     p.apply(Action(K.TRUCO))
     assert p.phase is Phase.ANSWERING
     p.apply(Action(K.MAZO))
     p.apply(Action(K.MAZO))
-    assert p.phase is Phase.FINISHED and p.duel_number == 3
-
-
-def test_match_phases_strict():
-    m = Match(first_dealer=5)
-    assert m.phase is MatchPhase.DEALING
-    m.deal(HANDS)
-    assert m.phase is MatchPhase.IN_HAND
-    m.play(Action(K.NOS_VAMOS))
-    assert m.phase is MatchPhase.DEALING
-    m.forfeit(0, ResultKind.ABANDONO)
-    assert m.phase is MatchPhase.OVER
-    m.homologate()
-    assert m.phase is MatchPhase.HOMOLOGATED
+    assert p.phase is Phase.FINISHED and len(p.duels) == 3
 
 
 def test_match_claims_open_until_the_next_deal():
@@ -232,6 +219,6 @@ def test_match_claims_open_until_the_next_deal():
     for s in (1, 3, 5):
         m.play(Action(K.SON_BUENAS), s)
     m.play(Action(K.NOS_VAMOS), 1)
-    assert m.phase is MatchPhase.CLAIMS_OPEN
+    assert m.hand is None and m.last_hand.claims_open
     m.deal()
-    assert m.phase is MatchPhase.IN_HAND
+    assert not m.last_hand.claims_open

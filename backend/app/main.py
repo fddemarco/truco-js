@@ -1,11 +1,12 @@
 from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.access import require_access
 from app.config import get_settings
 from app.observability import RequestContextMiddleware, configure_logging, log
-from app.routers import bots, games, health, logs
+from app.routers import access, bots, games, health, logs
 from app.signing import state_key
 
 
@@ -35,8 +36,11 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestContextMiddleware)
 
     api = APIRouter(prefix="/api")
-    for module in (health, bots, games, logs):
+    # Behind the password (app/access.py) when ACCESS_PASSWORD is set: all but these two.
+    for module in (health, access):
         api.include_router(module.router)
+    for module in (bots, games, logs):
+        api.include_router(module.router, dependencies=[Depends(require_access)])
     app.include_router(api)
     return app
 

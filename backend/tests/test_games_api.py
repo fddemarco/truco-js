@@ -2,6 +2,7 @@ from app.bots.settings import BotSettings
 from app.games import registry
 from app.truco.cards import Card, Suit
 from app.truco.envido import tanto
+from tests.test_registry import load
 
 BOT = {"kind": "bot", "bot_preset": "prolijo"}
 HUMAN = {"kind": "human"}
@@ -35,7 +36,7 @@ def h(token: str | None) -> dict:
 def next_mano(client, game, token=None, since=None) -> dict:
     """The table deals once its wait is over (here, right away; the request may also find the
     wait over by itself and deal first)."""
-    before = registry.load(game).deal_step
+    before = load(game).deal_step
 
     def deal_once(g) -> int | None:
         if g.deal_step == before and g.deal_at is not None:
@@ -302,14 +303,13 @@ def test_each_closed_ronda_is_announced(client):
         assert e["seat"] is None or 0 <= e["seat"] < 6
 
 
-def test_view_carries_the_phase_of_the_mano_and_the_partido(client):
+def test_view_carries_the_phase_of_the_mano(client):
     game = create(client, [HUMAN] * 6)
-    assert view(client, game)["match_phase"] == "dealing"
     assert view(client, game)["phase"] is None
     tokens = [join(client, game, s) for s in range(6)]
-    assert view(client, game)["match_phase"] == "dealing"  # until the table deals
+    assert view(client, game)["phase"] is None  # until the table deals
     v = deal(client, game, tokens[0])
-    assert (v["match_phase"], v["phase"]) == ("in_hand", "playing")
+    assert v["phase"] == "playing"
     seat = v["to_act"]
     res = client.post(
         f"/api/games/{game}/act", headers=h(tokens[seat]), json={"action": {"kind": "truco"}}

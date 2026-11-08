@@ -19,7 +19,6 @@ from app.games.session import (
 )
 from app.games.views import ONLINE_MS
 from app.truco.config import GameConfig, RuleMode
-from app.truco.match import ResultKind
 
 CHARACTERS = list(Character)
 
@@ -62,7 +61,8 @@ def test_a_failing_bot_is_logged_and_plays_a_legal_move(monkeypatch):
 def test_the_result_is_announced_once():
     game = new_session()
     game.join(0)
-    game.match.forfeit(1, ResultKind.ABANDONO)
+    game.match.warn(1)
+    game.match.warn(1)
     with capture_logs() as logs:
         game._after_change(had_hand=False)
         game._after_change(had_hand=False)

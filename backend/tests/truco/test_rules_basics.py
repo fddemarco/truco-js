@@ -5,17 +5,15 @@ import pytest
 from app.truco.cards import Card, Suit, new_deck
 from app.truco.envido import EnvidoCall, can_call, envido_points, said_in_order, tanto
 from app.truco.rounds import hand_winner, round_winner
-from app.truco.score import capped, in_buenas
+from app.truco.score import capped
 from app.truco.table import (
     choose_first_dealer,
     duel_order,
     facing,
     mano_of,
     number_of,
-    seat_of,
     team_of,
 )
-from app.truco.truco import truco_points
 
 E, R, F = EnvidoCall.ENVIDO, EnvidoCall.REAL_ENVIDO, EnvidoCall.FALTA_ENVIDO
 
@@ -146,13 +144,7 @@ def test_falta_envido_in_pica_pica_is_six():
 # --- truco (12.2) and score (1.4, 1.5) ---------------------------------------------------
 
 
-def test_truco_points():
-    assert [truco_points(level) for level in range(4)] == [1, 2, 3, 4]
-
-
-def test_malas_buenas_and_cap():
-    assert not in_buenas(15)
-    assert in_buenas(16)
+def test_score_is_capped_at_30():
     assert capped(28, 4) == 30
 
 
@@ -201,13 +193,13 @@ def test_pardas_table(results, expected):
 
 
 def test_same_numbers_face_each_other_and_teams_alternate():
-    for team in (0, 1):
-        for number in (1, 2, 3):
-            seat = seat_of(team, number)
-            assert team_of(seat) == team
-            assert number_of(seat) == number
-            assert number_of(facing(seat)) == number
-            assert team_of(facing(seat)) != team
+    for seat in range(6):
+        assert number_of(facing(seat)) == number_of(seat)
+        assert team_of(facing(seat)) != team_of(seat)
+        assert team_of((seat + 1) % 6) != team_of(seat)
+    assert sorted((team_of(s), number_of(s)) for s in range(6)) == [
+        (t, n) for t in (0, 1) for n in (1, 2, 3)
+    ]
 
 
 def test_mano_is_right_of_dealer():

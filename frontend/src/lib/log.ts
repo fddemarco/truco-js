@@ -37,7 +37,7 @@ function newId(): string {
 }
 
 /** This tab's id: every entry it ships carries it. */
-export const sessionId = newId();
+const sessionId = newId();
 export { newId as requestId };
 
 function configuredLevel(): Level {
@@ -55,7 +55,7 @@ export interface Sink {
 }
 
 /** Ships batches with fetch (keepalive, so a batch sent while the page closes still goes). */
-export const httpSink: Sink = {
+const httpSink: Sink = {
   send(session, entries) {
     void fetch("/api/logs", {
       method: "POST",

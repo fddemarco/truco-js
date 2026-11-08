@@ -16,7 +16,6 @@ import random
 from app.truco.cards import shuffled_deck
 
 SEATS = 6
-TEAMS = (0, 1)
 
 
 def team_of(seat: int) -> int:
@@ -54,11 +53,6 @@ def seats_across(seat: int) -> list[int]:
 def number_of(seat: int) -> int:
     """Reserved number 1-2-3 of the player at `seat`."""
     return (seat if team_of(seat) == 0 else facing(seat)) // 2 + 1
-
-
-def seat_of(team: int, number: int) -> int:
-    seat = 2 * (number - 1)
-    return seat if team == 0 else facing(seat)
 
 
 def order_from(start: int) -> list[int]:

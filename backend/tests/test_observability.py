@@ -99,3 +99,37 @@ def test_frontend_log_batches_are_bounded(client):
     assert client.post("/api/logs", json=too_many).status_code == 422
     bad_level = {"session_id": "s", "entries": [{**entry, "level": "fatal"}]}
     assert client.post("/api/logs", json=bad_level).status_code == 422
+
+
+def test_rotating_the_log_keeps_the_previous_run(data_dir):
+    from app.config import get_settings
+    from app.observability import rotate_log
+
+    settings = get_settings()
+    rotate_log(settings)  # no file yet: nothing to do
+    assert not settings.log_path.exists()
+    settings.log_path.parent.mkdir(parents=True)
+    for run in ("first run\n", "second run\n"):
+        settings.log_path.write_text(run)
+        rotate_log(settings)
+    assert settings.log_path.read_text() == ""
+    assert settings.log_path.with_name("app.jsonl.1").read_text() == "second run\n"
+    assert settings.log_path.with_name("app.jsonl.2").read_text() == "first run\n"
+
+
+def test_the_log_file_rotates_at_its_size_limit(data_dir, monkeypatch):
+    import logging
+
+    from app.config import get_settings
+    from app.observability import configure_logging
+
+    monkeypatch.setenv("LOG_MAX_MB", "0.001")  # 1 kB
+    monkeypatch.setenv("LOG_BACKUPS", "2")
+    get_settings.cache_clear()
+    settings = get_settings()
+    configure_logging(settings)
+    for i in range(100):
+        logging.getLogger("test").warning("filler %d %s", i, "x" * 50)
+    logs = sorted(p.name for p in settings.log_path.parent.iterdir())
+    assert logs == ["app.jsonl", "app.jsonl.1", "app.jsonl.2"]
+    assert settings.log_path.stat().st_size <= 1000

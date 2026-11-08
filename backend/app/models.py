@@ -51,7 +51,6 @@ class BotConfigRead(SQLModel):
     name: str
     settings: BotSettings
     character: Character | None = None
-    created_at: datetime
 
 
 class BotConfigCreated(BotConfigRead):

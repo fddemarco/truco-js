@@ -22,15 +22,20 @@ class Settings(BaseSettings):
     # is never unpickled. Required with DATABASE_URL; locally, DATA_DIR/state.key is made on
     # first use. At least 32 characters (`openssl rand -base64 32`).
     state_key: str | None = None
+    # One shared password in front of the app (app/access.py). Unset: no gate (local dev).
+    access_password: str | None = None
     # Take the client's address from X-Forwarded-For (rate limits, app/ratelimit.py). Only
     # behind a proxy that sets it, as Vercel's edge does (on by default there); otherwise a
     # client could forge it.
     trust_proxy: bool = Field(default_factory=lambda: bool(os.environ.get("VERCEL")))
     # Logging (see app/observability.py): level, console format, and the JSON-lines file in
-    # DATA_DIR/logs/app.jsonl.
+    # DATA_DIR/logs/app.jsonl, rotated at LOG_MAX_MB keeping LOG_BACKUPS old files
+    # (app.jsonl.1 is the newest). `make dev` starts each run on a fresh file.
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     log_format: Literal["console", "json"] = "console"
     log_file: bool = True
+    log_max_mb: float = Field(default=5, gt=0)
+    log_backups: int = Field(default=3, ge=1)
 
     @field_validator("data_dir")
     @classmethod
@@ -55,6 +60,10 @@ class Settings(BaseSettings):
         if len(value) < 32:
             raise ValueError("STATE_KEY must be at least 32 characters")
         return value
+
+    @property
+    def log_path(self) -> Path:
+        return self.data_dir / "logs" / "app.jsonl"
 
     @property
     def sqlite_path(self) -> Path:

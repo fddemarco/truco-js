@@ -29,9 +29,6 @@ from app.ratelimit import rate_limited
 from app.truco.config import GameConfig
 from app.truco.envido import EnvidoCall
 from app.truco.scoring import (
-    MAX_CHAIN_POINTS,
-    MAX_TARGET,
-    MIN_TARGET,
     REGLAMENTO,
     ChainPoints,
     Scoring,
@@ -118,9 +115,6 @@ def scoring_info() -> ScoringInfo:
         )
     return ScoringInfo(
         target=REGLAMENTO.target,
-        min_target=MIN_TARGET,
-        max_target=MAX_TARGET,
-        max_points=MAX_CHAIN_POINTS,
         chains=chains,
     )
 

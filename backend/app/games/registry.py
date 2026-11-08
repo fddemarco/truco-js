@@ -112,13 +112,6 @@ def run[T](game_id: str, fn: Callable[[GameSession], T], since: int | None = Non
     raise Conflict("the table changed meanwhile, try again")
 
 
-def load(game_id: str, since: int | None = None) -> GameSession | None:
-    """The game as stored (read only: nothing is dealt or saved)."""
-    with Session(get_engine()) as db:
-        loaded = _load(db, game_id, since)
-        return loaded.game if loaded else None
-
-
 def _load(db: Session, game_id: str, since: int | None) -> _Loaded | None:
     record = db.get(GameRecord, game_id)
     if record is None:

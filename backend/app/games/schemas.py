@@ -7,7 +7,6 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from app.games.characters import Character
 from app.truco.config import RuleMode
 from app.truco.hand import ActionKind, Phase
-from app.truco.match import MatchPhase
 from app.truco.scoring import DEFAULT_TARGET, MAX_CHAIN_POINTS, MAX_TARGET, MIN_TARGET
 from app.truco.signals import BodySpot, Sena
 
@@ -55,9 +54,6 @@ class ScoringInfo(BaseModel):
     model_config = READ
 
     target: int
-    min_target: int
-    max_target: int
-    max_points: int
     chains: list[ChainInfo]
 
 
@@ -220,7 +216,6 @@ class GameView(BaseModel):
     version: int
     server_ms: int
     started: bool
-    match_phase: MatchPhase
     seats: list[SeatView]
     team_names: list[str]
     score: list[int]

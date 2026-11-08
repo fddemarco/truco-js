@@ -1,4 +1,5 @@
 import createClient from "openapi-fetch";
+import { access, isAccessRefusal } from "$lib/access.svelte";
 import { log, requestId } from "$lib/log";
 import type { components, paths } from "./schema";
 
@@ -14,7 +15,14 @@ api.use({
     started.set(request, performance.now());
     return request;
   },
-  onResponse({ request, response }) {
+  async onResponse({ request, response }) {
+    if (response.status === 401) {
+      const body = await response
+        .clone()
+        .json()
+        .catch(() => null);
+      if (isAccessRefusal(response.status, body)) access.locked = true;
+    }
     const fields = {
       method: request.method,
       path: new URL(request.url, "http://x").pathname,
@@ -71,4 +79,3 @@ export type RuleMode = Schemas["RuleMode"];
 export type ScoringInfo = Schemas["ScoringInfo"];
 export type ChainInfo = Schemas["ChainInfo"];
 export type ChainSetup = Schemas["ChainSetup"];
-export type ScoringSetup = Schemas["ScoringSetup"];

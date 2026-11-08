@@ -39,7 +39,6 @@ const saved: BotConfig[] = [
     name: "Mi bot",
     settings: { ...base, envido_sing: "always" },
     character: null,
-    created_at: "2026-11-07T00:00:00Z",
   },
 ];
 

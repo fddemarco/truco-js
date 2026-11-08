@@ -45,18 +45,6 @@ export function seatsAcross(viewer: number): number[] {
   return [first, first + 1, first + 2].map(across);
 }
 
-/** The viewer's two neighbours on their own side, left and right (null at the table's end). */
-export function neighbours(viewer: number): { left: number | null; right: number | null } {
-  const pos = viewer % 3;
-  return { left: pos > 0 ? viewer - 1 : null, right: pos < 2 ? viewer + 1 : null };
-}
-
-/** The own-side seats other than the viewer, left to right. */
-export function besides(viewer: number): number[] {
-  const first = 3 * tableSide(viewer);
-  return [first, first + 1, first + 2].filter((s) => s !== viewer);
-}
-
 /**
  * The next deal, once a mano is over. The server deals by itself at `deal_at` (its clock; the
  * offset turns it into this device's); the cutter, the player to the dealer's left (5.5), may
@@ -120,7 +108,7 @@ export function tally(points: number, target = 30): number[] {
 }
 
 /** Team names to draw from (the backend draws from the same kind of list). */
-export const TEAM_NAMES = [
+const TEAM_NAMES = [
   "Los Pumas",
   "Las Vizcachas",
   "Los Teros",

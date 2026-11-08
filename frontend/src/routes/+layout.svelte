@@ -2,6 +2,9 @@
   import { onMount } from "svelte";
   import { page } from "$app/state";
   import { playlistFor, setPlaylist, startMusic, syncMusicVolume } from "$lib/audio.svelte";
+  import { access, setAccess } from "$lib/access.svelte";
+  import { api } from "$lib/api/client";
+  import AccessGate from "$lib/components/AccessGate.svelte";
   import WelcomeDialog from "$lib/components/WelcomeDialog.svelte";
   import { installGlobalHandlers, log } from "$lib/log";
   import { LOGO } from "$lib/cards";
@@ -21,6 +24,12 @@
 
   onMount(() => {
     installGlobalHandlers();
+    // The password gate (ACCESS_PASSWORD on the server). If the API can't be reached, the app
+    // opens and shows its own errors.
+    api.GET("/api/access").then(
+      ({ data }) => setAccess(data ?? { required: false, granted: true }),
+      () => setAccess({ required: false, granted: true }),
+    );
     log.info("ui.started", { path: page.url.pathname, locale: i18n.locale });
     // Try the music right away; browsers that block sound before a gesture get another try on
     // each one until it plays (pointerdown alone doesn't count everywhere, e.g. on touch).
@@ -91,7 +100,13 @@
       )}
     </nav>{/if}
   <main class="mx-auto max-w-6xl px-4 pt-16 pb-6">
-    {@render children()}
+    {#if !access.checked}
+      <!-- Asking the server whether a password is needed. -->
+    {:else if access.locked}
+      <AccessGate />
+    {:else}
+      {@render children()}
+    {/if}
   </main>
-  {#if !profile.name}<WelcomeDialog />{/if}
+  {#if access.checked && !access.locked && !profile.name}<WelcomeDialog />{/if}
 </div>

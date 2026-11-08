@@ -19,7 +19,8 @@ install: ## Install backend (uv) and frontend (pnpm) dependencies
 dev: ## Run API and UI together (Ctrl+C stops both)
 	@$(MAKE) -j2 --no-print-directory dev-api dev-web
 
-dev-api: ## Run the FastAPI server with reload
+dev-api: ## Run the FastAPI server with reload (each run starts a fresh log file)
+	cd backend && uv run python -m app.observability rotate
 	cd backend && uv run uvicorn app.main:app --reload --host $(HOST) --port $(API_PORT)
 
 dev-web: ## Run the Vite dev server (proxies /api to the API)
@@ -53,5 +54,5 @@ gen-reqs: ## Regenerate requirements.txt (Vercel) from backend/uv.lock, after uv
 build: ## Production build of the frontend
 	cd frontend && pnpm build
 
-clean: ## Delete local data (SQLite; needed after a NOT NULL column is added to a table)
+clean: ## Delete local data (SQLite; needed after a NOT NULL column without a default is added)
 	rm -rf data

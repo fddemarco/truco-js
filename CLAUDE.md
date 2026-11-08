@@ -11,7 +11,7 @@ Stack:
 ```
 UI ──/api (vite proxy | Vercel rewrite)──▶ FastAPI ──▶ SQLite data/app.sqlite | Postgres on Vercel (SQLModel)
                              │
-                             ├─ app/truco/   pure-Python game engine + tournament logic
+                             ├─ app/truco/   pure-Python game engine
                              ├─ app/bots/    configurable local bot strategies (strict + interactive)
                              └─ app/games/   game sessions (stateless: loaded and saved per request): seats, tokens, bots, per-seat views, the deal
 ```
@@ -46,7 +46,7 @@ Run Python through uv (`cd backend && uv run ...`) and JS through pnpm (`cd fron
 
 ## Deploy (Vercel)
 
-One Vercel project from the repo root (`vercel.json`): the SPA is built from `frontend/` to static files, and `api/index.py` serves the FastAPI app as a Python function for every `/api/*` request. Python dependencies come from the root `requirements.txt` (exported from `backend/uv.lock`), the Python version from `.python-version`. Env vars in Vercel: `DATABASE_URL` (the Neon integration's pooled Postgres URL), `STATE_KEY` (required: signs the stored game state, `openssl rand -base64 32`), `LOG_FILE=false`, `LOG_FORMAT=json`. Tables are created on first use; there are no migrations, so a new NOT NULL column needs its table dropped (locally: `make clean`).
+Step-by-step guide for people: `docs/deployment.md` (keep it in sync with this section). One Vercel project from the repo root (`vercel.json`): the SPA is built from `frontend/` to static files, and `api/index.py` serves the FastAPI app as a Python function for every `/api/*` request. Python dependencies come from the root `requirements.txt` (exported from `backend/uv.lock`), the Python version from `.python-version`. The database is the Neon project linked in `.neon`, declared in `neon.ts` (Postgres only, free tier; `neon deploy` applies it). Env vars in Vercel (Preview and Production): `DATABASE_URL` (the Neon branch's pooled Postgres URL), `STATE_KEY` (required: signs the stored game state, `openssl rand -base64 32`), `ACCESS_PASSWORD` (the app's shared password: Vercel's free plan has no password protection, see `backend/app/access.py`), `LOG_FILE=false`, `LOG_FORMAT=json`. Never point `TEST_DATABASE_URL` at the `production` branch: the suite drops its tables (use `neon checkout dev --create`). Tables are created on first use; there are no migrations, so a new NOT NULL column without a constant default needs its table dropped (locally: `make clean`).
 
 ## Rules
 

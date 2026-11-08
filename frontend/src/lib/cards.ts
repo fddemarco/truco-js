@@ -7,8 +7,6 @@ export type Suit = "espada" | "basto" | "oro" | "copa";
 export const SUITS: Suit[] = ["espada", "basto", "oro", "copa"];
 /** Every number with art: the full 48-card Spanish deck. */
 export const NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
-/** The 40 cards used in truco: no 8s, 9s or comodines (5.1). */
-export const TRUCO_NUMBERS = [1, 2, 3, 4, 5, 6, 7, 10, 11, 12] as const;
 
 export const CARD_BACK = "/cards/dorso.webp";
 export const COMODINES = ["/cards/comodin-1.webp", "/cards/comodin-2.webp"] as const;

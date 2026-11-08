@@ -94,11 +94,6 @@ function nextTrack() {
   music.play().catch(() => {});
 }
 
-export function stopMusic(): void {
-  music?.pause();
-  music = null;
-}
-
 /** Keep the music volume in step with the profile (call inside an $effect). */
 export function syncMusicVolume(): void {
   const v = volume(profile.musicVolume);

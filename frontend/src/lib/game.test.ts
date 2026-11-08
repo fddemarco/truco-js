@@ -12,8 +12,6 @@ import {
   saveToken,
   GAME_KEEP_MS,
   across,
-  besides,
-  neighbours,
   pendingCanto,
   prompt,
   drawTeamNames,
@@ -32,12 +30,6 @@ describe("seating", () => {
     expect(seatsAcross(4)).toEqual([2, 1, 0]);
     expect(across(2)).toBe(3); // the last of one side faces the first of the other
     expect(across(1)).toBe(4);
-  });
-
-  it("knows who sits beside the viewer", () => {
-    expect(neighbours(1)).toEqual({ left: 0, right: 2 });
-    expect(neighbours(3)).toEqual({ left: null, right: 4 });
-    expect(besides(4)).toEqual([3, 5]);
   });
 });
 

@@ -23,6 +23,7 @@ def data_dir(tmp_path, monkeypatch):
         monkeypatch.setenv("DATABASE_URL", "")  # also hides one in ../.env
         monkeypatch.setenv("STATE_KEY", "")  # a key file in the tmp DATA_DIR
     monkeypatch.setenv("TRUST_PROXY", "false")
+    monkeypatch.setenv("ACCESS_PASSWORD", "")  # the gate is off unless a test turns it on
     get_settings.cache_clear()
     db.get_engine.cache_clear()
     if TEST_DATABASE_URL:

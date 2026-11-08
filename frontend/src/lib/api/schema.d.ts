@@ -21,6 +21,25 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/access": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get Access */
+    get: operations["get_access_api_access_get"];
+    put?: never;
+    /** Enter */
+    post: operations["enter_api_access_post"];
+    /** Leave */
+    delete: operations["leave_api_access_delete"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/bots/presets": {
     parameters: {
       query?: never;
@@ -248,6 +267,18 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    /** AccessRead */
+    AccessRead: {
+      /** Required */
+      required: boolean;
+      /** Granted */
+      granted: boolean;
+    };
+    /** AccessRequest */
+    AccessRequest: {
+      /** Password */
+      password: string;
+    };
     /** ActRequest */
     ActRequest: {
       /** Look */
@@ -328,11 +359,6 @@ export interface components {
       name: string;
       settings: components["schemas"]["BotSettings-Output"];
       character: components["schemas"]["Character"] | null;
-      /**
-       * Created At
-       * Format: date-time
-       */
-      created_at: string;
       /** Token */
       token: string;
     };
@@ -344,11 +370,6 @@ export interface components {
       name: string;
       settings: components["schemas"]["BotSettings-Output"];
       character: components["schemas"]["Character"] | null;
-      /**
-       * Created At
-       * Format: date-time
-       */
-      created_at: string;
     };
     /** BotConfigUpdate */
     BotConfigUpdate: {
@@ -606,7 +627,6 @@ export interface components {
       server_ms: number;
       /** Started */
       started: boolean;
-      match_phase: components["schemas"]["MatchPhase"];
       /** Seats */
       seats: components["schemas"]["SeatView"][];
       /** Team Names */
@@ -768,11 +788,6 @@ export interface components {
       /** Token */
       token: string;
     };
-    /**
-     * MatchPhase
-     * @enum {string}
-     */
-    MatchPhase: "dealing" | "in_hand" | "claims_open" | "over" | "homologated";
     /** PendingView */
     PendingView: {
       /**
@@ -820,12 +835,6 @@ export interface components {
     ScoringInfo: {
       /** Target */
       target: number;
-      /** Min Target */
-      min_target: number;
-      /** Max Target */
-      max_target: number;
-      /** Max Points */
-      max_points: number;
       /** Chains */
       chains: components["schemas"]["ChainInfo"][];
     };
@@ -1022,6 +1031,77 @@ export interface operations {
         content: {
           "application/json": components["schemas"]["Health"];
         };
+      };
+    };
+  };
+  get_access_api_access_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccessRead"];
+        };
+      };
+    };
+  };
+  enter_api_access_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AccessRequest"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AccessRead"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  leave_api_access_delete: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
       };
     };
   };

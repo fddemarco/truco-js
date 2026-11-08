@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { play, playlistFor, setPlaylist, sfxFor, startMusic, stopMusic } from "./audio.svelte";
+import { play, playlistFor, sfxFor } from "./audio.svelte";
 import { updateProfile } from "./profile.svelte";
+
+/** The music player is module state: each music test starts from a fresh module. */
+async function freshAudio() {
+  vi.resetModules();
+  return import("./audio.svelte");
+}
 
 describe("audio", () => {
   afterEach(() => {
@@ -44,7 +50,8 @@ describe("audio", () => {
     expect(playlistFor("/play/abc123")).toBe("game");
   });
 
-  it("switches the playing music when the page changes playlist", () => {
+  it("switches the playing music when the page changes playlist", async () => {
+    const { setPlaylist, startMusic } = await freshAudio();
     const made: { src: string }[] = [];
     vi.stubGlobal(
       "Audio",
@@ -67,10 +74,10 @@ describe("audio", () => {
     expect(made[0].src).toBe("/audio/music-1.ogg"); // the same player, a new track
     setPlaylist("game");
     expect(made).toHaveLength(1);
-    stopMusic();
   });
 
   it("keeps trying to start the music until the browser allows it", async () => {
+    const { setPlaylist, startMusic } = await freshAudio();
     const made: { src: string }[] = [];
     let allowed = false;
     vi.stubGlobal(
@@ -92,6 +99,5 @@ describe("audio", () => {
     allowed = true;
     expect(await startMusic()).toBe(true); // the next gesture
     expect(made).toHaveLength(1); // the same player both times
-    stopMusic();
   });
 });

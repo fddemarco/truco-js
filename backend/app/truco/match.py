@@ -1,6 +1,6 @@
 """A partido a 30: deals, mano types, scoreboard, reclamos and sanctions.
 
-Covers 1.3–1.5, 5.5–5.7, 11.7, 15.1, 15.6, 15.9, 16.4, 19.2 and the result types of 1.14.
+Covers 1.3–1.5, 5.5–5.7, 11.7, 15.1, 15.6, 15.9 and 19.2.
 The deal is automated, so the reglamento's physical incidents (dealing errors, cutting,
 dropped, lost or extra cards) can't happen and are not modelled.
 """
@@ -26,19 +26,7 @@ class HandKind(StrEnum):
 
 class ResultKind(StrEnum):
     DEPORTIVO = "deportivo"
-    AUSENCIA = "ausencia"
-    DESCALIFICACION = "descalificacion"
-    ABANDONO = "abandono"
     SANCION = "sancion"
-    DOBLE_DESCALIFICACION = "doble_descalificacion"
-
-
-class MatchPhase(StrEnum):
-    DEALING = "dealing"  # between manos: the next deal is due
-    IN_HAND = "in_hand"
-    CLAIMS_OPEN = "claims_open"  # interactive: reclamos on the last mano, until the next deal
-    OVER = "over"  # sporting or administrative result
-    HOMOLOGATED = "homologated"  # the result is closed (16.4)
 
 
 class MatchError(RuntimeError):
@@ -48,7 +36,7 @@ class MatchError(RuntimeError):
 @dataclass(frozen=True)
 class MatchResult:
     kind: ResultKind
-    winner: int | None  # None only for doble descalificación
+    winner: int
     score: tuple[int, int]
 
     @property
@@ -80,7 +68,6 @@ class Match:
         self.history: list[HandRecord] = []
         self.warnings = [0, 0]  # advertencias disciplinarias per team
         self.result: MatchResult | None = None
-        self.homologated = False
         # Interactive reclamos about the last mano stay open until the next deal (11.7, 15.9).
         self._claimable: Contest | None = None
         self._last_hand: Contest | PicaPicaHand | None = None
@@ -89,18 +76,6 @@ class Match:
     @property
     def finished(self) -> bool:
         return self.result is not None
-
-    @property
-    def phase(self) -> MatchPhase:
-        if self.homologated:
-            return MatchPhase.HOMOLOGATED
-        if self.result is not None:
-            return MatchPhase.OVER
-        if self.hand is not None:
-            return MatchPhase.IN_HAND
-        if self._claimable is not None and self._claimable.claims_open:
-            return MatchPhase.CLAIMS_OPEN
-        return MatchPhase.DEALING
 
     @property
     def last_hand(self) -> Contest | PicaPicaHand | None:
@@ -134,7 +109,7 @@ class Match:
     def actions_for(self, seat: int) -> list[Action]:
         if self.hand is not None:
             return self.hand.actions_for(seat)
-        if self._claimable is not None and not self.homologated:
+        if self._claimable is not None:
             return self._claimable.actions_for(seat)
         return []
 
@@ -173,28 +148,6 @@ class Match:
         self.warnings[team] += 1
         if self.warnings[team] >= WARNINGS_TO_LOSE:
             self._end(ResultKind.SANCION, other(team))
-
-    def disqualify(self, *teams: int) -> None:
-        self._check_open_for_sanctions()
-        if set(teams) == {0, 1}:
-            self._end(ResultKind.DOBLE_DESCALIFICACION, None)
-        else:
-            (team,) = set(teams)
-            self._end(ResultKind.DESCALIFICACION, other(team))
-
-    def forfeit(self, team: int, kind: ResultKind) -> None:
-        """Ausencia (4.1) or abandono of `team`."""
-        if kind not in (ResultKind.AUSENCIA, ResultKind.ABANDONO):
-            raise ValueError(f"not a forfeit: {kind}")
-        self._check_open_for_sanctions()
-        self._end(kind, other(team))
-
-    def homologate(self) -> MatchResult:
-        """Both captains (or the referee) validate: the result is closed (16.4)."""
-        if self.result is None:
-            raise MatchError("the partido has no result yet")
-        self.homologated = True
-        return self.result
 
     # --- internals -------------------------------------------------------------------
 
@@ -256,12 +209,10 @@ class Match:
                 self._end(ResultKind.DEPORTIVO, t)
 
     def _check_open_for_sanctions(self) -> None:
-        # Conduct before homologation can still change a sporting result (16.8, 19.2).
-        if self.homologated:
-            raise MatchError("the result is homologated")
+        # Conduct can still change a sporting result (16.8, 19.2).
         if self.result is not None and self.result.administrative:
             raise MatchError("the partido already has an administrative result")
 
-    def _end(self, kind: ResultKind, winner: int | None) -> None:
+    def _end(self, kind: ResultKind, winner: int) -> None:
         self.result = MatchResult(kind, winner, (self.score[0], self.score[1]))
         self.hand = None

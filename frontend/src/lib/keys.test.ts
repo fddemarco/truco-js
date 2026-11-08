@@ -3,7 +3,6 @@ import type { ActionKind, GameAction } from "$lib/api/client";
 import {
   actionForKey,
   bindable,
-  cardKeyHint,
   COMMANDS,
   keyHint,
   keyLabel,
@@ -90,7 +89,6 @@ describe("custom bindings", () => {
     expect(keyHint("falta_envido", qwerty)).toBe("B");
     expect(keyHint("vale_cuatro", qwerty)).toBe("R");
     expect(keyHint("declarar", qwerty)).toBeNull();
-    expect(cardKeyHint(2, qwerty)).toBe("F");
     expect(keyLabel("Space")).toBe("␣");
     expect(keyLabel("ArrowLeft")).toBe("←");
   });

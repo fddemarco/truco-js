@@ -238,7 +238,6 @@ class Contest:
         self.winner: int | None = None  # team that won the truco part of the mano
         self.phase = Phase.PLAYING
         self.match_point = False  # a team reached 30 during this contest
-        self.annulled = False
         self.started = False  # first effective action made (15.9)
         # Interactive mode.
         self.in_mazo: set[int] = set()  # cards put into the mazo: the envido can't be proven (8.3)
@@ -392,7 +391,6 @@ class Contest:
     def annul(self) -> None:
         """The contest counts 0–0 and is not replayed (15.6)."""
         self.points = [0, 0]
-        self.annulled = True
         self._enter(Phase.FINISHED)
 
     def concede(self, seat: int) -> None:
@@ -846,11 +844,6 @@ class PicaPicaHand:
     @property
     def phase(self) -> Phase:
         return Phase.FINISHED if self.finished else self.current.phase
-
-    @property
-    def duel_number(self) -> int:
-        """1, 2 or 3: the duelo being played (or the last one played)."""
-        return len(self.duels)
 
     @property
     def to_act(self) -> int | None:

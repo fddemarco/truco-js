@@ -34,6 +34,36 @@ def test_an_old_database_gets_the_new_nullable_columns(tmp_path, monkeypatch):
         db.get_engine.cache_clear()
 
 
+def test_an_old_database_gets_new_not_null_columns_with_a_default(tmp_path, monkeypatch):
+    # A database from before GameRecord.revision (NOT NULL, default 0): creating a game failed
+    # with "table gamerecord has no column named revision" until it was deleted.
+    with sqlite3.connect(tmp_path / "app.sqlite") as old:
+        old.execute(
+            "CREATE TABLE gamerecord (id VARCHAR PRIMARY KEY, state BLOB NOT NULL,"
+            " finished BOOLEAN NOT NULL, updated_at DATETIME NOT NULL)"
+        )
+        old.execute("INSERT INTO gamerecord VALUES ('viejo', x'00', 1, '2026-01-01 00:00:00')")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("DATABASE_URL", "")
+    monkeypatch.setenv("STATE_KEY", "")
+    get_settings.cache_clear()
+    db.get_engine.cache_clear()
+    from app.main import create_app
+
+    try:
+        with TestClient(create_app()) as client:
+            bots = [{"kind": "bot", "bot_preset": "prolijo"}] * 5
+            res = client.post("/api/games", json={"seats": [{"kind": "human"}, *bots]})
+            assert res.status_code == 201, res.text
+        with sqlite3.connect(tmp_path / "app.sqlite") as conn:
+            columns = {c[1]: c for c in conn.execute("PRAGMA table_info(gamerecord)")}
+        _, _, kind, notnull, default, _ = columns["revision"]
+        assert (kind, notnull, default) == ("INTEGER", 1, "0")  # old rows took the default
+    finally:
+        get_settings.cache_clear()
+        db.get_engine.cache_clear()
+
+
 def test_provider_postgres_urls_get_the_psycopg_driver(monkeypatch):
     from app.config import Settings
 

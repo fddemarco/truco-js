@@ -35,6 +35,8 @@ LIMITS = {
     "bots": Limit(30, 600),
     # A busy page ships a batch every 2 s; a whole table on one address stays under this.
     "logs": Limit(240, 60),
+    # Password attempts (app/access.py).
+    "access": Limit(10, 600),
 }
 
 

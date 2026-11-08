@@ -35,14 +35,6 @@ export const chainKey = (chain: readonly string[]) => chain.join(">");
 export const chainLabel = (chain: readonly string[]) =>
   chain.map((c) => CANTO_LABELS[c] ?? c).join(" → ");
 
-/** The cantos of a family, in the order they first appear in its chains. */
-export function cantosOf(info: ScoringInfo, family: Family): string[] {
-  const out: string[] = [];
-  for (const c of info.chains)
-    if (c.family === family) for (const x of c.chain) if (!out.includes(x)) out.push(x);
-  return out;
-}
-
 /** The cantos that can follow `prefix` in a chain of `family` (only within its hierarchy). */
 export function nextCantos(info: ScoringInfo, family: Family, prefix: readonly string[]): string[] {
   const out: string[] = [];

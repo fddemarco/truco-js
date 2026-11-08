@@ -28,16 +28,13 @@ make clean          # wipe local data (SQLite)
 make gen-reqs       # regenerate requirements.txt (Vercel) after changing backend deps
 ```
 
-## Deploy to Vercel
-1. Import the repo in Vercel, root directory = repo root. `vercel.json` sets the build (SPA from `frontend/`), the Python function (`api/index.py`) and the rewrites.
-2. Add a Postgres database: Storage → Neon, connected to the project. It sets `DATABASE_URL` (use the pooled URL).
-3. Set `STATE_KEY` (at least 32 characters, e.g. `openssl rand -base64 32`; it signs the stored game state, and the API won't start without it), `LOG_FILE=false` and `LOG_FORMAT=json` in the project's environment variables.
-4. Deploy. `/api/health` should return `{"status": "ok"}`, and tables are created on the first request.
+## Deploy
+Free tiers only: Neon Postgres and Vercel (static SPA + FastAPI as a Python function), with the app's own password gate (`ACCESS_PASSWORD`). Setup, environment variables and checks: [docs/deployment.md](docs/deployment.md).
 
 ## Project layout
 ```
 backend/    FastAPI app, truco engine (app/truco), tests
-docs/       official reglamento (source of truth for the rules)
+docs/       official reglamento (source of truth for the rules), deployment guide
 frontend/   SvelteKit SPA
 data/       local state (gitignored)
 .claude/    Claude Code skills + auto-format hook (see CLAUDE.md)

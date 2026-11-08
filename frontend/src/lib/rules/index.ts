@@ -58,7 +58,7 @@ const files = import.meta.glob("./*/*.md", {
   eager: true,
 }) as Record<string, string>;
 
-export function ruleMarkdown(slug: string, locale: Locale): string | undefined {
+function ruleMarkdown(slug: string, locale: Locale): string | undefined {
   return files[`./${locale}/${slug}.md`];
 }
 

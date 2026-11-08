@@ -20,7 +20,6 @@ function makeView(overrides: Partial<GameView> = {}): GameView {
     version: 1,
     server_ms: Date.now(),
     started: true,
-    match_phase: "in_hand",
     seats: Array.from({ length: 6 }, (_, i) => ({
       seat: i,
       team: i % 2,

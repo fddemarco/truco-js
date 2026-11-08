@@ -9,7 +9,7 @@ from collections.abc import Iterator
 from functools import lru_cache
 
 import structlog
-from sqlalchemy import Engine, inspect, text
+from sqlalchemy import Column, Engine, inspect, literal, text
 from sqlalchemy.pool import NullPool
 from sqlmodel import Session, SQLModel, create_engine
 
@@ -42,7 +42,8 @@ def init_db(engine: Engine) -> None:
 def add_missing_columns(engine: Engine) -> None:
     """`create_all` never changes a table that already exists, so a database made before a
     column was added would fail on every query. Add the missing columns that can be added in
-    place (nullable ones); anything else needs `make clean`."""
+    place: nullable ones, and NOT NULL ones with a constant default (existing rows take it).
+    Anything else needs `make clean`."""
     existing = inspect(engine)
     with engine.begin() as conn:
         for table in SQLModel.metadata.sorted_tables:
@@ -52,12 +53,27 @@ def add_missing_columns(engine: Engine) -> None:
             for column in table.columns:
                 if column.name in have:
                     continue
-                if not column.nullable:
+                ddl = _column_ddl(column, engine)
+                if ddl is None:
                     log.warning("db.column_missing", table=table.name, column=column.name)
                     continue
-                kind = column.type.compile(dialect=engine.dialect)
-                conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {kind}'))
+                conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN {ddl}'))
                 log.info("db.column_added", table=table.name, column=column.name)
+
+
+def _column_ddl(column: Column, engine: Engine) -> str | None:
+    """The ADD COLUMN clause for `column`, or None when it can't be added to a table with rows
+    (NOT NULL without a constant default)."""
+    ddl = f'"{column.name}" {column.type.compile(dialect=engine.dialect)}'
+    if column.nullable:
+        return ddl
+    default = column.default
+    if default is None or not default.is_scalar:
+        return None
+    value = literal(default.arg, column.type).compile(
+        dialect=engine.dialect, compile_kwargs={"literal_binds": True}
+    )
+    return f"{ddl} NOT NULL DEFAULT {value}"
 
 
 def get_session() -> Iterator[Session]:
