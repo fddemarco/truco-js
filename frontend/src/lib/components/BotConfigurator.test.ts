@@ -38,6 +38,7 @@ const saved: BotConfig[] = [
     id: 7,
     name: "Mi bot",
     settings: { ...base, envido_sing: "always" },
+    character: null,
     created_at: "2026-11-07T00:00:00Z",
   },
 ];
@@ -83,14 +84,35 @@ describe("BotConfigurator", () => {
     await fireEvent.change(field("card_order"), { target: { value: "cheapest_winner" } });
     await fireEvent.click(field("envido_raise"));
     await fireEvent.input(field("name"), { target: { value: "  Ahorrador  " } });
+    await fireEvent.click(screen.getByRole("button", { name: /Roca/ }));
+    expect(onSave).not.toHaveBeenCalled();
     await fireEvent.submit(field("name").form!);
-    expect(onSave).toHaveBeenCalledWith("Ahorrador", {
-      ...base,
-      card_order: "cheapest_winner",
-      envido_raise_threshold: 30,
+    expect(onSave).toHaveBeenLastCalledWith({
+      name: "Ahorrador",
+      character: "roca",
+      settings: { ...base, card_order: "cheapest_winner", envido_raise_threshold: 30 },
     });
     expect(screen.getByRole("status").textContent).toContain("Bot guardado");
     expect(field("name").value).toBe("");
+  });
+
+  it("edits an existing bot in place", async () => {
+    const onSave = vi.fn(async (): Promise<string | null> => null);
+    const editing = { name: "Mi bot", character: "novato" as const, settings: saved[0].settings };
+    const view = render(BotConfigurator, { presets, saved, editing, onSave });
+    const field = (name: string) =>
+      view.container.querySelector(`[name="${name}"]`) as HTMLInputElement;
+    expect(field("bot")).toBeNull(); // no "start from" selector
+    expect(field("envido_sing").value).toBe("always");
+    expect(field("name").value).toBe("Mi bot");
+    await fireEvent.input(field("bluff"), { target: { value: "0.5" } });
+    await fireEvent.submit(field("name").form!);
+    expect(onSave).toHaveBeenCalledWith({
+      name: "Mi bot",
+      character: "novato",
+      settings: { ...saved[0].settings, bluff: 0.5 },
+    });
+    expect(field("name").value).toBe("Mi bot");
   });
 
   it("needs a name to save", async () => {

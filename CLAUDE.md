@@ -36,6 +36,7 @@ UI ──/api (vite proxy)──▶ FastAPI ──▶ SQLite  data/app.sqlite   
 | Process an avatar gallery | `uv run tools/art/avatars.py sheet <character> <gallery>` |
 | Edit a seña (mirror, lift, patch, SVG overlay, realign) | `uv run tools/art/avatars.py <command> ...` (`--help` for each) |
 | Import approved art | `cd frontend && pnpm import-art [--partial]` |
+| Read the logs (backend + frontend, JSON lines) | `tail -f data/logs/app.jsonl` (`LOG_LEVEL=DEBUG` adds polling; browser debug entries such as beats stay in `window.__trucoLogs`) |
 
 Run Python through uv (`cd backend && uv run ...`) and JS through pnpm (`cd frontend && pnpm ...`). Never use pip or npm.
 

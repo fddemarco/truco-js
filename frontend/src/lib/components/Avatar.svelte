@@ -4,12 +4,13 @@
     avatarVariants,
     characterFor,
     type BodySpot,
+    type Character,
     type Sena,
   } from "$lib/avatar/avatar";
 
   interface Props {
-    /** Seat index; each seat gets one of the six characters. */
-    character: number;
+    /** The character, or a seat index (seat i → the i-th character). */
+    character: Character | number;
     label: string;
     /** The seña being shown right now; the table clears it after its duration. */
     sena?: Sena;
@@ -19,7 +20,7 @@
 
   let { character, label, sena, spot, class: className = "" }: Props = $props();
 
-  const id = $derived(characterFor(character));
+  const id = $derived(typeof character === "number" ? characterFor(character) : character);
   const base = $derived(avatarSrc(id));
   const wanted = $derived(avatarSrc(id, sena, spot));
 

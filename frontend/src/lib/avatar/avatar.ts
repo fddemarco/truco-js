@@ -34,6 +34,18 @@ export const SPOTS: Record<Sena, BodySpot[]> = {
 
 export const SENAS = Object.keys(SPOTS) as Sena[];
 
+/** What each seña means (Anexo C.2). Card names are game terms: Spanish in every locale. */
+export const SENA_NAMES: Record<Sena, string> = {
+  sena_01: "Ancho de espadas",
+  sena_02: "Ancho de bastos",
+  sena_03: "Siete bravo (7 de espadas)",
+  sena_04: "Siete de oros",
+  sena_05: "Un tres",
+  sena_06: "Un dos",
+  sena_07: "Ancho falso (1 de copas u oros)",
+  sena_12: "Buen envido",
+};
+
 /** The six characters, one per seat (see `docs/art-prompts.md`). */
 export const CHARACTERS = [
   "tiburon",
@@ -45,6 +57,20 @@ export const CHARACTERS = [
 ] as const;
 
 export type Character = (typeof CHARACTERS)[number];
+
+/** Display names: proper names, the same in every language (match the backend's). */
+export const CHARACTER_NAMES: Record<Character, string> = {
+  tiburon: "Tiburón",
+  maniaca: "Maníaca",
+  roca: "Roca",
+  novato: "Novato",
+  calculadora: "Calculadora",
+  fanfarron: "Fanfarrón",
+};
+
+export function isCharacter(value: unknown): value is Character {
+  return typeof value === "string" && (CHARACTERS as readonly string[]).includes(value);
+}
 
 /** Every image name a character has: `base` and one per seña. 9 in total. */
 export const VARIANTS: string[] = ["base", ...SENAS];

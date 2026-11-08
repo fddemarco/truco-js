@@ -1,0 +1,82 @@
+<script lang="ts">
+  import { LOGO } from "$lib/cards";
+  import { t } from "$lib/i18n.svelte";
+</script>
+
+<!-- The start screen: two ways to play up front, rules and bots as small corner icons. -->
+<section
+  class="relative mx-auto mt-6 max-w-3xl rounded-2xl bg-green-800 px-6 py-12 shadow-xl sm:px-12"
+>
+  <a
+    href="/rules"
+    class="absolute top-4 left-4 rounded-full bg-white/15 p-2.5 text-white hover:bg-white/25"
+    aria-label={t("home.rules")}
+    title={t("home.rules")}
+  >
+    <!-- book -->
+    <svg
+      viewBox="0 0 24 24"
+      class="h-6 w-6"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+    </svg>
+  </a>
+  <a
+    href="/settings"
+    class="absolute top-4 right-4 rounded-full bg-white/15 p-2.5 text-white hover:bg-white/25"
+    aria-label={t("home.settings")}
+    title={t("home.settings")}
+  >
+    <!-- gear -->
+    <svg
+      viewBox="0 0 24 24"
+      class="h-6 w-6"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path
+        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+      />
+    </svg>
+  </a>
+
+  <div class="flex flex-col items-center text-center">
+    <img
+      src={LOGO}
+      alt="Truco"
+      width="200"
+      height="72"
+      class="h-20 w-auto rounded-lg bg-white/90 px-3 py-1"
+    />
+    <p class="mt-3 text-white/85">{t("home.tagline")}</p>
+  </div>
+
+  <div class="mt-10 grid gap-4 sm:grid-cols-2">
+    <a
+      href="/play?where=online"
+      class="group rounded-xl bg-amber-400 px-6 py-6 text-center text-amber-950 shadow-lg transition hover:-translate-y-1 hover:bg-amber-300"
+    >
+      <span class="block text-2xl font-black">{t("home.online")}</span>
+      <span class="mt-1 block text-sm text-amber-900">{t("home.onlineHint")}</span>
+    </a>
+    <a
+      href="/play?where=local"
+      class="group rounded-xl bg-white px-6 py-6 text-center text-slate-900 shadow-lg transition hover:-translate-y-1 hover:bg-slate-50"
+    >
+      <span class="block text-2xl font-black">{t("home.local")}</span>
+      <span class="mt-1 block text-sm text-slate-600">{t("home.localHint")}</span>
+    </a>
+  </div>
+</section>

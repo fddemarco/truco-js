@@ -12,8 +12,11 @@ import time
 from dataclasses import dataclass
 from typing import Literal
 
+import structlog
+
 from app.bots.settings import BotSettings
 from app.bots.strategy import choose_action
+from app.games.characters import Character, draw_team_names
 from app.games.schemas import (
     ActionModel,
     CardModel,
@@ -31,8 +34,11 @@ from app.truco.cards import Card, Suit
 from app.truco.config import GameConfig
 from app.truco.hand import Action, ActionKind, Contest, IllegalAction, PicaPicaHand
 from app.truco.match import Match, MatchError
+from app.truco.rounds import round_winner
 from app.truco.signals import BodySpot, Sena, SenaEvent
-from app.truco.table import SEATS, number_of, team_of
+from app.truco.table import SEATS, across, number_of, seats_across, team_of
+
+log = structlog.get_logger("game")
 
 MAX_EVENTS = 40
 SENA_VISIBLE_MS = 6000
@@ -54,6 +60,7 @@ class Conflict(GameError):
 class Seat:
     kind: Literal["human", "bot"]
     name: str
+    character: Character
     bot: BotSettings | None = None
     token: str | None = None
 
@@ -86,7 +93,12 @@ def action_model(action: Action) -> ActionModel:
 
 class GameSession:
     def __init__(
-        self, game_id: str, config: GameConfig, seats: list[Seat], rng: random.Random | None = None
+        self,
+        game_id: str,
+        config: GameConfig,
+        seats: list[Seat],
+        rng: random.Random | None = None,
+        team_names: tuple[str, str] | None = None,
     ) -> None:
         if len(seats) != SEATS:
             raise GameError("a partido needs six seats")
@@ -98,6 +110,7 @@ class GameSession:
         self.config = config
         self.seats = seats
         self.rng = rng or random.Random()
+        self.team_names = team_names or draw_team_names(self.rng)
         self.match = Match(rng=self.rng, config=config)
         self.lock = threading.Lock()
         self.version = 0
@@ -115,8 +128,10 @@ class GameSession:
             target.token = secrets.token_urlsafe(16)
             if name.strip():
                 target.name = name.strip()
+            log.info("game.joined", game_id=self.id, seat=seat)
             if all(s.joined for s in self.seats):
                 self.started = True
+                log.info("game.started", game_id=self.id)
                 self._deal()
             self._touch()
             return target.token
@@ -148,10 +163,13 @@ class GameSession:
                 event = SenaEvent(seat, sena, spot, now_ms(), duration_ms, target)
                 self.match.sena(event)
             except (ValueError, MatchError) as e:
+                log.warning("game.sena_rejected", game_id=self.id, seat=seat, reason=str(e))
                 raise GameError(str(e)) from e
+            log.info("game.sena", game_id=self.id, seat=seat, duration_ms=duration_ms)
             for team in (0, 1):
                 if self.match.warnings[team] > warnings[team]:
                     self._event(EventView(seat=seat, kind="interferencia"))
+                    log.warning("game.interference", game_id=self.id, seat=seat, team=team)
             self._after_change(had_hand=True)
             self._run_bots()
             self._touch()
@@ -164,7 +182,12 @@ class GameSession:
 
     # --- view -----------------------------------------------------------------------
 
-    def view(self, token: str | None = None) -> GameView:
+    def view(self, token: str | None = None, look: int | None = None) -> GameView:
+        """The table as `token`'s seat sees it; `look` is the seat its camera is on.
+
+        A seat only sees the señas of the player across it is looking at (and its own), as
+        faces on its own side of the table can't be seen. Spectators see every seña.
+        """
         with self.lock:
             me = self.seat_for(token) if token else None
             m = self.match
@@ -177,11 +200,14 @@ class GameSession:
                 version=self.version,
                 server_ms=now_ms(),
                 started=self.started,
+                match_phase=m.phase,
                 seats=seats,
+                team_names=list(self.team_names),
                 score=list(m.score),
                 hand_number=len(m.history) + (1 if hand else 0),
                 hand_kind=m.hand_kind if self.started else None,
                 dealer=m.dealer,
+                phase=hand.phase if hand else None,
                 to_act=hand.to_act if hand else None,
                 can_deal=self.started and hand is None and not m.finished,
                 result=ResultView(kind=m.result.kind, winner=m.result.winner) if m.result else None,
@@ -191,6 +217,8 @@ class GameSession:
             if contest is not None:
                 self._fill_contest(view, contest, hand)
             if me is not None:
+                focus = look if look is not None and look in seats_across(me) else across(me)
+                view.senas = [s for s in view.senas if s.seat in (me, focus)]
                 view.my_cards = [card_model(c) for c in self._cards_of(me)]
                 if self.started:
                     view.actions = [action_model(a) for a in m.actions_for(me)]
@@ -203,6 +231,7 @@ class GameSession:
 
     def _fill_contest(self, view: GameView, contest: Contest, hand) -> None:
         view.mano = contest.mano
+        view.pie = contest.seats[-1]
         if contest.pica_pica:
             view.duel = list(contest.seats)
         view.rounds = [
@@ -258,13 +287,24 @@ class GameSession:
             team=team_of(seat),
             number=number_of(seat),
             name=s.name,
+            character=s.character,
             kind=s.kind,
             joined=s.joined,
             in_play=in_play,
             active=in_play and contest is not None and seat in contest.active,
             cards_left=len(self._cards_of(seat)),
             shown=shown,
+            played=[card_model(c) for c in self._played(seat)],
         )
+
+    def _played(self, seat: int) -> list[Card]:
+        """The cards `seat` played this mano: every duel of a pica-pica hand, kept on the
+        table after the mano ends until the next deal."""
+        m = self.match
+        hand = m.hand if m.hand is not None else (m.last_hand if self._contest else None)
+        contests = hand.duels if isinstance(hand, PicaPicaHand) else [hand] if hand else []
+        rondas = [ronda for contest in contests for ronda in contest.rounds]
+        return [c for ronda in rondas for s, c in ronda if s == seat]
 
     def _current_contest(self) -> Contest | None:
         hand = self.match.hand
@@ -297,16 +337,40 @@ class GameSession:
         self.match.deal()
         self._contest = None
         self._event(EventView(kind="reparto", number=len(self.match.history) + 1))
+        log.info(
+            "game.dealt",
+            game_id=self.id,
+            hand_number=len(self.match.history) + 1,
+            hand_kind=str(self.match.hand_kind),
+            dealer=self.match.dealer,
+        )
         self._run_bots()
 
     def _apply(self, seat: int, action: Action) -> None:
         had_hand = self.match.hand is not None
         contests = self._all_contests()
         had_envido = {id(c) for c in contests if c.envido is not None}
+        had_results = {id(c): len(c.results) for c in contests}
         try:
             self.match.play(action, seat)
         except (IllegalAction, MatchError) as e:
+            log.warning(
+                "game.action_rejected",
+                game_id=self.id,
+                seat=seat,
+                kind=str(action.kind),
+                reason=str(e),
+            )
             raise GameError(str(e)) from e
+        log.info(
+            "game.action",
+            game_id=self.id,
+            seat=seat,
+            by=self.seats[seat].kind,
+            kind=str(action.kind),
+            card=str(action.card) if action.card else None,
+            number=action.number,
+        )
         card = card_model(action.card) if action.card else None
         event = EventView(seat=seat, kind=str(action.kind), card=card, number=action.number)
         if action.kind == ActionKind.SENA:
@@ -316,6 +380,12 @@ class GameSession:
             claimed = next((c for c in contests if c.claims and c.claims[-1][0] == seat), None)
             event.upheld = claimed.claims[-1][1] if claimed else None
         self._event(event)
+        for c in contests:
+            for i in range(had_results[id(c)], len(c.results)):
+                # A ronda closed (7): its winning card's seat, or no seat for a parda.
+                winner, top = round_winner(c.rounds[i], team_of)
+                seat_won = top if winner is not None else None
+                self._event(EventView(seat=seat_won, kind="ronda", number=i + 1))
         for c in contests:
             if c.envido is not None and id(c) not in had_envido:
                 e = c.envido
@@ -329,9 +399,19 @@ class GameSession:
         if had_hand and m.hand is None and m.history:
             last = m.history[-1]
             self._event(EventView(kind="fin_mano", points=list(last.points)))
+            log.info(
+                "game.mano_finished", game_id=self.id, points=list(last.points), score=list(m.score)
+            )
             self._contest = self._last_contest()
         if m.result is not None and (not self.events or self.events[-1].kind != "resultado"):
             self._event(EventView(kind="resultado", seat=None, points=list(m.score)))
+            log.info(
+                "game.finished",
+                game_id=self.id,
+                result=m.result.kind,
+                winner=m.result.winner,
+                score=list(m.score),
+            )
 
     def _all_contests(self) -> list[Contest]:
         hand = self.match.hand
@@ -364,11 +444,20 @@ _games: dict[str, GameSession] = {}
 _games_lock = threading.Lock()
 
 
-def create_game(config: GameConfig, seats: list[Seat]) -> GameSession:
+def create_game(
+    config: GameConfig, seats: list[Seat], team_names: tuple[str, str] | None = None
+) -> GameSession:
     with _games_lock:
         game_id = secrets.token_urlsafe(6)
-        session = GameSession(game_id, config, seats)
+        session = GameSession(game_id, config, seats, team_names=team_names)
         _games[game_id] = session
+        log.info(
+            "game.created",
+            game_id=game_id,
+            mode=str(config.mode),
+            humans=sum(s.kind == "human" for s in seats),
+            bots=sum(s.kind == "bot" for s in seats),
+        )
         return session
 
 

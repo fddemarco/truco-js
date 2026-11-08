@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { goto } from "$app/navigation";
+  import { page } from "$app/state";
   import {
     api,
     errorMessage,
@@ -9,28 +10,40 @@
     type RuleMode,
     type SeatSetup,
   } from "$lib/api/client";
-  import { saveToken } from "$lib/game";
+  import { CHARACTER_NAMES, CHARACTERS, type Character } from "$lib/avatar/avatar";
+  import { drawTeamNames, saveToken } from "$lib/game";
   import { t } from "$lib/i18n.svelte";
+  import { profile } from "$lib/profile.svelte";
 
   let presets = $state<BotPreset[]>([]);
   let saved = $state<BotConfig[]>([]);
   let mode = $state<RuleMode>("strict");
-  let where = $state<"local" | "online">("local");
+  // The home page links here with ?where=online or ?where=local.
+  let where = $state<"local" | "online">(
+    page.url.searchParams.get("where") === "online" ? "online" : "local",
+  );
   let error = $state<string | null>(null);
   let busy = $state(false);
 
   interface Row {
     kind: "human" | "bot";
     name: string;
+    character: Character | ""; // "" = automatic
     bot: string; // "preset:<key>" or "saved:<id>"
   }
+  // Seat 1 is this player, with their profile; bots play as their character by default.
   let rows = $state<Row[]>(
     Array.from({ length: 6 }, (_, i) => ({
       kind: i === 0 ? "human" : "bot",
-      name: "",
+      name: i === 0 ? profile.name : "",
+      character: i === 0 ? profile.character : "",
       bot: "preset:prolijo",
     })),
   );
+  let teamNames = $state<[string, string]>(drawTeamNames());
+  /** Characters picked by another row, not offered again. */
+  const takenBy = (i: number) =>
+    rows.flatMap((r, j) => (j !== i && r.character ? [r.character] : []));
 
   onMount(async () => {
     const [p, b] = await Promise.all([api.GET("/api/bots/presets"), api.GET("/api/bots")]);
@@ -41,11 +54,14 @@
   const humans = $derived(rows.flatMap((r, i) => (r.kind === "human" ? [i] : [])));
 
   function setup(row: Row): SeatSetup {
-    if (row.kind === "human") return { kind: "human", name: row.name };
+    const character = row.character || null;
+    if (row.kind === "human") {
+      return { kind: "human", name: row.name, character, bot_id: null, bot_preset: null };
+    }
     const [kind, id] = row.bot.split(":");
     return kind === "saved"
-      ? { kind: "bot", name: row.name, bot_id: Number(id), bot_preset: null }
-      : { kind: "bot", name: row.name, bot_preset: id, bot_id: null };
+      ? { kind: "bot", name: row.name, character, bot_id: Number(id), bot_preset: null }
+      : { kind: "bot", name: row.name, character, bot_preset: id, bot_id: null };
   }
 
   async function start(event: SubmitEvent) {
@@ -56,7 +72,10 @@
     }
     busy = true;
     error = null;
-    const created = await api.POST("/api/games", { body: { mode, seats: rows.map(setup) } });
+    const names = teamNames.map((n) => n.trim());
+    const created = await api.POST("/api/games", {
+      body: { mode, seats: rows.map(setup), team_names: names.every(Boolean) ? names : null },
+    });
     if (created.error || !created.data) {
       error = errorMessage(created.error);
       busy = false;
@@ -106,6 +125,27 @@
     {/each}
   </fieldset>
 
+  <fieldset class="text-sm">
+    <legend class="mb-1 font-semibold">{t("play.teamNames")}</legend>
+    <div class="flex flex-wrap items-center gap-2">
+      {#each [0, 1] as team (team)}
+        <input
+          class="input max-w-52 border-2 {team ? 'border-rose-300' : 'border-indigo-300'}"
+          name="team-{team}"
+          maxlength="24"
+          bind:value={teamNames[team]}
+        />
+      {/each}
+      <button
+        type="button"
+        class="btn"
+        title={t("play.drawNames")}
+        aria-label={t("play.drawNames")}
+        onclick={() => (teamNames = drawTeamNames(Math.random, teamNames))}>🎲</button
+      >
+    </div>
+  </fieldset>
+
   <table class="table">
     <thead>
       <tr>
@@ -113,6 +153,7 @@
         <th>{t("play.team")}</th>
         <th></th>
         <th>{t("play.name")}</th>
+        <th>{t("play.character")}</th>
         <th>{t("play.bot")}</th>
       </tr>
     </thead>
@@ -121,7 +162,7 @@
         <tr>
           <td>{i + 1}</td>
           <td class={i % 2 ? "text-rose-700" : "text-indigo-700"}>
-            {(i % 2) + 1} · {t("play.number")}
+            {teamNames[i % 2]} · {t("play.number")}
             {Math.floor((i % 2 ? (i + 3) % 6 : i) / 2) + 1}
           </td>
           <td>
@@ -130,7 +171,25 @@
               <option value="bot">{t("play.bot")}</option>
             </select>
           </td>
-          <td><input class="input" name="name-{i}" maxlength="40" bind:value={row.name} /></td>
+          <td>
+            <input
+              class="input"
+              name="name-{i}"
+              maxlength="40"
+              placeholder={row.kind === "bot" && row.character
+                ? CHARACTER_NAMES[row.character]
+                : ""}
+              bind:value={row.name}
+            />
+          </td>
+          <td>
+            <select class="input" name="character-{i}" bind:value={row.character}>
+              <option value="">{t("play.anyCharacter")}</option>
+              {#each CHARACTERS as c (c)}
+                <option value={c} disabled={takenBy(i).includes(c)}>{CHARACTER_NAMES[c]}</option>
+              {/each}
+            </select>
+          </td>
           <td>
             {#if row.kind === "bot"}
               <select class="input" name="bot-{i}" bind:value={row.bot}>

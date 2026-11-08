@@ -5,6 +5,7 @@ from pydantic import ConfigDict, StringConstraints
 from sqlmodel import JSON, Column, Field, SQLModel
 
 from app.bots.settings import BotSettings
+from app.games.characters import Character
 
 
 def utcnow() -> datetime:
@@ -24,12 +25,20 @@ class BotConfig(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     name: str = Field(index=True, unique=True)
     settings: dict[str, Any] = Field(sa_column=Column(JSON))
+    character: str | None = None  # its avatar; None = whichever is free at the table
     created_at: datetime = Field(default_factory=utcnow)
 
 
 class BotConfigCreate(SQLModel):
     name: BotName
     settings: BotSettings
+    character: Character | None = None
+
+
+class BotConfigUpdate(SQLModel):
+    name: BotName | None = None
+    settings: BotSettings | None = None
+    character: Character | None = None
 
 
 class BotConfigRead(SQLModel):
@@ -38,4 +47,5 @@ class BotConfigRead(SQLModel):
     id: int
     name: str
     settings: BotSettings
+    character: Character | None = None
     created_at: datetime

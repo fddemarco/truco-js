@@ -1,8 +1,43 @@
 import createClient from "openapi-fetch";
+import { log, requestId } from "$lib/log";
 import type { components, paths } from "./schema";
 
 /** Typed client for the FastAPI backend. Regenerate types with `make gen-api`. */
 export const api = createClient<paths>({ baseUrl: "" });
+
+// Tracing: each call carries its own X-Request-ID, which the backend binds to every line it
+// logs for the request, and the call is logged here with the same id.
+const started = new WeakMap<Request, number>();
+api.use({
+  onRequest({ request }) {
+    request.headers.set("X-Request-ID", requestId());
+    started.set(request, performance.now());
+    return request;
+  },
+  onResponse({ request, response }) {
+    const fields = {
+      method: request.method,
+      path: new URL(request.url, "http://x").pathname,
+      status: response.status,
+      duration_ms: Math.round(performance.now() - (started.get(request) ?? performance.now())),
+      request_id: request.headers.get("X-Request-ID"),
+    };
+    // Polling a game is constant: only its failures are worth more than debug.
+    if (response.status >= 500) log.error("api.request", fields);
+    else if (response.status >= 400) log.warn("api.request", fields);
+    else if (request.method === "GET") log.debug("api.request", fields);
+    else log.info("api.request", fields);
+    return response;
+  },
+  onError({ request, error }) {
+    log.error("api.network_error", {
+      method: request.method,
+      path: new URL(request.url, "http://x").pathname,
+      request_id: request.headers.get("X-Request-ID"),
+      message: error instanceof Error ? error.message : String(error),
+    });
+  },
+});
 
 export type Schemas = components["schemas"];
 
@@ -30,4 +65,5 @@ export type SeatView = Schemas["SeatView"];
 export type SeatSetup = Schemas["SeatSetup"];
 export type GameEvent = Schemas["EventView"];
 export type SenaView = Schemas["SenaView"];
+export type CardModel = Schemas["CardModel"];
 export type RuleMode = Schemas["RuleMode"];

@@ -5,7 +5,15 @@ import random
 from app.bots.settings import BotSettings, CardOrder, Policy
 from app.truco.cards import Card
 from app.truco.envido import tanto
-from app.truco.hand import ENVIDO_ACTIONS, TRUCO_ACTIONS, Action, ActionKind, Contest, PicaPicaHand
+from app.truco.hand import (
+    ENVIDO_ACTIONS,
+    TRUCO_ACTIONS,
+    Action,
+    ActionKind,
+    Contest,
+    Phase,
+    PicaPicaHand,
+)
 from app.truco.table import team_of
 from app.truco.truco import next_call
 
@@ -59,7 +67,8 @@ def choose_action(
     my_tanto = tanto(contest.dealt[seat])
     kinds = {a.kind for a in legal}
 
-    if contest.declaration is not None:
+    if contest.phase is Phase.DECLARING:
+        assert contest.declaration is not None
         best = contest.declaration.best_number
         if K.SON_BUENAS in kinds and my_tanto <= best:
             return Action(K.SON_BUENAS)

@@ -30,6 +30,30 @@ export function suitSrc(suit: Suit): string {
   return `/suits/${suit}.svg`;
 }
 
+const SPECIAL_RANKS: Record<string, number> = {
+  "1-espada": 14,
+  "1-basto": 13,
+  "7-espada": 12,
+  "7-oro": 11,
+};
+const RANK_BY_NUMBER: Record<number, number> = {
+  3: 10,
+  2: 9,
+  1: 8,
+  12: 7,
+  11: 6,
+  10: 5,
+  7: 4,
+  6: 3,
+  5: 2,
+  4: 1,
+};
+
+/** Truco hierarchy (Anexo A): 14 = 1 de espadas … 1 = any 4. Matches the backend's `rank`. */
+export function trucoRank(number: number, suit: string): number {
+  return SPECIAL_RANKS[`${number}-${suit}`] ?? RANK_BY_NUMBER[number] ?? 0;
+}
+
 /** "1 de espadas", "12 de copas". */
 export function cardName(number: number, suit: Suit): string {
   return `${number} de ${PLURAL[suit]}`;

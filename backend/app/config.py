@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -13,6 +14,11 @@ class Settings(BaseSettings):
 
     data_dir: Path = PROJECT_DIR / "data"
     cors_origins: list[str] = ["http://localhost:5173"]
+    # Logging (see app/observability.py): level, console format, and the JSON-lines file in
+    # DATA_DIR/logs/app.jsonl.
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    log_format: Literal["console", "json"] = "console"
+    log_file: bool = True
 
     @field_validator("data_dir")
     @classmethod

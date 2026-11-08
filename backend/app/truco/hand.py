@@ -107,6 +107,15 @@ class Action:
         return cls(ActionKind.SENA, sena=sena)
 
 
+class Phase(StrEnum):
+    """The phase of a contest; see `docs/state-machine.md`."""
+
+    PLAYING = "playing"  # the player in turn plays or sings
+    ANSWERING = "answering"  # a canto sung in turn blocks play until answered (13.2)
+    DECLARING = "declaring"  # interactive envido declarations (11.4)
+    FINISHED = "finished"  # nobody acts, except interactive reclamos
+
+
 class IllegalAction(ValueError):
     pass
 
@@ -193,7 +202,7 @@ class Contest:
         self.truco_holder: int | None = None  # team allowed to raise (12.1)
         self.points = [0, 0]
         self.winner: int | None = None  # team that won the truco part of the mano
-        self.finished = False
+        self.phase = Phase.PLAYING
         self.match_point = False  # a team reached 30 during this contest
         self.annulled = False
         self.started = False  # first effective action made (15.9)
@@ -201,7 +210,7 @@ class Contest:
         self.in_mazo: set[int] = set()  # cards put into the mazo: the envido can't be proven (8.3)
         self.tapados: set[int] = set()
         self.shown: set[int] = set()
-        self.declaration: Declaration | None = None
+        self.declaration: Declaration | None = None  # set while DECLARING
         self.claims_open = False
         self.claims: list[tuple[int, bool]] = []  # (seat, upheld)
         self.forfeited_to: int | None = None  # every point of this contest goes to this team
@@ -217,14 +226,23 @@ class Contest:
         return self.seats[0]
 
     @property
+    def finished(self) -> bool:
+        return self.phase is Phase.FINISHED
+
+    @property
     def to_act(self) -> int | None:
-        if self.finished:
-            return None
-        if self.declaration:
-            return self.declaration.current
-        if self._blocking():
-            return self._responder(self._answerable().chanter)
-        return self.turn
+        match self.phase:
+            case Phase.PLAYING:
+                return self.turn
+            case Phase.ANSWERING:
+                answerable = self._answerable()
+                assert answerable is not None
+                return self._responder(answerable.chanter)
+            case Phase.DECLARING:
+                assert self.declaration is not None
+                return self.declaration.current
+            case Phase.FINISHED:
+                return None
 
     def live_scores(self) -> tuple[int, int]:
         return (self.scores[0] + self.points[0], self.scores[1] + self.points[1])
@@ -242,16 +260,20 @@ class Contest:
         return [] if seat is None else self.actions_for(seat)
 
     def actions_for(self, seat: int) -> list[Action]:
+        """The legal moves of `seat`: a function of the phase (see `docs/state-machine.md`)."""
         if seat not in self.seats:
             return []
-        if self.config.interactive:
-            return self._interactive_actions(seat)
-        if seat != self.to_act:
-            return []
-        actions = self._strict_actions(seat)
-        if not self._signalled:
-            actions += [Action.signal(s) for s in Sena]
-        return actions
+        if not self.config.interactive and seat != self.to_act:
+            return []  # strict: only the player the game waits for acts
+        moves = [Action(ActionKind.RECLAMAR)] if self._claim_open(seat) else []
+        match self.phase:
+            case Phase.PLAYING if seat in self.active:
+                moves += self._moves_playing(seat)
+            case Phase.ANSWERING if seat in self.active:
+                moves += self._moves_answering(seat)
+            case Phase.DECLARING:
+                moves += self._moves_declaring(seat)
+        return list(dict.fromkeys(moves))
 
     def apply(self, action: Action, seat: int | None = None) -> None:
         seat = self.to_act if seat is None else seat
@@ -279,16 +301,14 @@ class Contest:
         elif kind in TRUCO_ACTIONS:
             self._sing_truco(LADDER.index(TRUCO_ACTIONS[kind]) + 1, seat)
         elif kind == ActionKind.QUIERO:
-            pending = self._answerable()
-            self.pending.remove(pending)
+            pending = self._take_answerable()
             if pending.family == "envido":
                 self._accept_envido()
             else:
                 self.truco_accepted = self.truco_level
                 self.truco_holder = team
         elif kind == ActionKind.NO_QUIERO:
-            pending = self._answerable()
-            self.pending.remove(pending)
+            pending = self._take_answerable()
             if pending.family == "envido":
                 self._resolve_envido(accepted=False, chanter=pending.chanter)
             else:
@@ -309,8 +329,7 @@ class Contest:
         elif kind == ActionKind.RECLAMAR:
             self._claim(seat)
         elif kind == ActionKind.OBJETAR:
-            pending = self._answerable()
-            self.pending.remove(pending)
+            pending = self._take_answerable()
             self.truco_level, self.truco_accepted, self.truco_holder = pending.truco_before
         elif kind == ActionKind.PERDON:
             assert self._undo is not None
@@ -322,13 +341,9 @@ class Contest:
         elif kind == ActionKind.MOSTRAR:
             self.shown.add(seat)
 
+        self._settle_cantos()
         # The player in turn left the mano: once nothing blocks, the next one plays.
-        if (
-            not self.finished
-            and not self.declaration
-            and not self._blocking()
-            and self.turn not in self.active
-        ):
+        if self.phase is Phase.PLAYING and self.turn not in self.active:
             self._advance()
 
     # --- used by PicaPicaHand and Match -------------------------------------------------
@@ -343,9 +358,8 @@ class Contest:
     def annul(self) -> None:
         """The contest counts 0–0 and is not replayed (15.6)."""
         self.points = [0, 0]
-        self.finished = self.annulled = True
-        self.pending.clear()
-        self.declaration = None
+        self.annulled = True
+        self._enter(Phase.FINISHED)
 
     def concede(self, seat: int) -> None:
         """`seat` already put their cards into the mazo before this duelo started (15.5)."""
@@ -376,28 +390,95 @@ class Contest:
         elif self.interference_by != team:
             self.annul()
 
-    # --- strict mode ------------------------------------------------------------------
+    # --- moves of each phase ------------------------------------------------------------
 
-    def _strict_actions(self, actor: int) -> list[Action]:
-        actions: list[Action] = []
-        if self.pending:
-            actions += [Action(ActionKind.QUIERO), Action(ActionKind.NO_QUIERO)]
-            if self.pending[-1].family == "envido":
-                actions += self._envido_actions()
-            else:
-                actions += self._truco_raise()
-                if self._envido_open():
-                    actions += self._envido_actions()
-        else:
-            actions += [Action.play(card) for card in self.hands[actor]]
-            if self._envido_open():
-                actions += self._envido_actions()
-            if self.truco_level == 0 or self.truco_holder == team_of(actor):
-                actions += self._truco_raise()
-        actions.append(Action(ActionKind.MAZO))
+    def _moves_playing(self, seat: int) -> list[Action]:
+        moves: list[Action] = []
+        if self.config.interactive:
+            moves += self._answers(seat)  # cantos fuera de turno still waiting (13.4)
+            moves += self._pardon(seat)
+        if seat == self.turn:
+            moves += [Action.play(card) for card in self.hands[seat]]
+        if self._envido_open():
+            moves += self._envido_actions()
+        if self.config.interactive:
+            if not self._has_pending("truco"):
+                moves += self._truco_calls()
+        elif self.truco_level == 0 or self.truco_holder == team_of(seat):
+            moves += self._truco_raise()  # only the team holding the right raises (12.1)
+        return moves + self._anytime(seat)
+
+    def _moves_answering(self, seat: int) -> list[Action]:
+        moves = self._answers(seat)
+        if self.config.interactive:
+            moves += self._pardon(seat)
+        if self._envido_open():
+            moves += self._envido_actions()  # before a pending truco: envido first (13.6)
+        return moves + self._anytime(seat)
+
+    def _moves_declaring(self, seat: int) -> list[Action]:
+        d = self.declaration
+        assert d is not None
+        if seat != d.current:
+            return []
+        moves = [Action.declare(n) for n in VALID_DECLARATIONS]
+        if d.best is not None:
+            moves.append(Action(ActionKind.SON_BUENAS))
+        return moves
+
+    def _answers(self, seat: int) -> list[Action]:
+        """Answers to the canto waiting now; any active rival may answer (10.1)."""
+        pending = self._answerable()
+        if pending is None or team_of(pending.chanter) == team_of(seat):
+            return []
+        moves = [Action(ActionKind.QUIERO), Action(ActionKind.NO_QUIERO)]
+        if pending.family == "envido":
+            return moves + self._envido_actions()
+        moves += self._truco_calls() if self.config.interactive else self._truco_raise()
+        if pending.irregular:
+            moves.append(Action(ActionKind.OBJETAR))  # 12.3
+        return moves
+
+    def _pardon(self, seat: int) -> list[Action]:
+        """Interactive: the last canto can be withdrawn by agreement (10.3, 12.5)."""
+        undo, team = self._undo, team_of(seat)
+        if undo is None:
+            return []
+        if undo.team == team and not undo.proposed:
+            return [Action(ActionKind.PERDON)]
+        if undo.team != team and undo.proposed:
+            return [Action(ActionKind.ACEPTAR_PERDON)]
+        return []
+
+    def _anytime(self, seat: int) -> list[Action]:
+        """Moves an active player has while playing or answering."""
+        moves = [Action(ActionKind.MAZO)]
+        if self.config.interactive:
+            moves.append(Action(ActionKind.TAPAR))
         if not self.pica_pica:
-            actions.append(Action(ActionKind.NOS_VAMOS))
-        return actions
+            moves.append(Action(ActionKind.NOS_VAMOS))
+        if self.config.interactive and seat not in self.shown:
+            moves.append(Action(ActionKind.MOSTRAR))
+        if not self.config.interactive and not self._signalled:
+            moves += [Action.signal(s) for s in Sena]  # strict: once per turn
+        return moves
+
+    # --- transitions ------------------------------------------------------------------
+
+    def _enter(self, phase: Phase) -> None:
+        self.phase = phase
+        if phase is not Phase.DECLARING:
+            self.declaration = None
+        if phase is Phase.FINISHED:
+            self.pending.clear()  # e.g. 30 reached: pending cantos have no effect (11.10)
+
+    def _settle_cantos(self) -> None:
+        """While playing or answering: a canto sung in turn blocks play until answered (13.2)."""
+        if self.phase in (Phase.PLAYING, Phase.ANSWERING):
+            blocking = any(p.in_turn for p in self.pending)
+            self._enter(Phase.ANSWERING if blocking else Phase.PLAYING)
+
+    # --- strict mode ------------------------------------------------------------------
 
     def _signal(self, seat: int, sena: Sena) -> None:
         """Each teammate notices the seña with probability p, each rival with probability q."""
@@ -413,51 +494,6 @@ class Contest:
 
     # --- interactive mode ---------------------------------------------------------------
 
-    def _interactive_actions(self, seat: int) -> list[Action]:
-        actions: list[Action] = []
-        if self._claim_open(seat):
-            actions.append(Action(ActionKind.RECLAMAR))
-        if self.finished:
-            return actions
-        if self.declaration:
-            if seat == self.declaration.current:
-                actions += [Action.declare(n) for n in VALID_DECLARATIONS]
-                if self.declaration.best is not None:
-                    actions.append(Action(ActionKind.SON_BUENAS))
-            return actions
-        if seat not in self.active:
-            return actions
-
-        team = team_of(seat)
-        answerable = self._answerable()
-        if answerable and team_of(answerable.chanter) != team:
-            # Any active rival may answer; the first valid answer counts (10.1).
-            actions += [Action(ActionKind.QUIERO), Action(ActionKind.NO_QUIERO)]
-            if answerable.family == "envido":
-                actions += self._envido_actions()
-            else:
-                actions += self._truco_calls()
-                if answerable.irregular:
-                    actions.append(Action(ActionKind.OBJETAR))
-        if self._undo:
-            if self._undo.team == team and not self._undo.proposed:
-                actions.append(Action(ActionKind.PERDON))
-            if self._undo.team != team and self._undo.proposed:
-                actions.append(Action(ActionKind.ACEPTAR_PERDON))
-        if self._envido_open():
-            actions += self._envido_actions()  # in or out of turn, or before a pending truco
-        if not self._blocking():
-            if seat == self.turn:
-                actions += [Action.play(card) for card in self.hands[seat]]
-            if not self._has_pending("truco"):
-                actions += self._truco_calls()
-        actions += [Action(ActionKind.MAZO), Action(ActionKind.TAPAR)]
-        if not self.pica_pica:
-            actions.append(Action(ActionKind.NOS_VAMOS))
-        if seat not in self.shown:
-            actions.append(Action(ActionKind.MOSTRAR))
-        return list(dict.fromkeys(actions))
-
     def _truco_calls(self) -> list[Action]:
         """Interactive: any higher level may be sung; skipping one is irregular (12.3)."""
         return [Action(_ACTION_FOR[c]) for c in LADDER[self.truco_level :]]
@@ -467,6 +503,7 @@ class Contest:
             self._resolve_envido(accepted=True, chanter=-1)
             return
         self.declaration = Declaration([s for s in self.seats if s in self.active])
+        self._enter(Phase.DECLARING)
 
     def _declare(self, seat: int, number: int | None) -> None:
         """First number said counts; a tie goes to whoever declared first, closer to mano (11.6)."""
@@ -484,7 +521,7 @@ class Contest:
         if d.index < len(d.order):
             return
         assert d.best is not None
-        self.declaration = None
+        self._enter(Phase.PLAYING)  # settled into ANSWERING if a truco still waits
         team = team_of(d.best)
         points = self._envido_value(accepted=True, team=team)
         self.envido = EnvidoResult(list(self.envido_calls), True, team, points, d.declared, d.best)
@@ -575,9 +612,11 @@ class Contest:
     def _has_pending(self, family: str) -> bool:
         return any(p.family == family for p in self.pending)
 
-    def _blocking(self) -> bool:
-        """A canto sung in turn must be answered before play continues (13.2)."""
-        return any(p.in_turn for p in self.pending)
+    def _take_answerable(self) -> Pending:
+        pending = self._answerable()
+        assert pending is not None
+        self.pending.remove(pending)
+        return pending
 
     def _envido_open(self) -> bool:
         """Envido can be sung during the first ronda, before any truco is querido (11.2)."""
@@ -683,7 +722,6 @@ class Contest:
 
     def _fold(self, team: int) -> None:
         """A whole team left the mano: pending cantos count as rejected (8.5, 15.7)."""
-        self.declaration = None
         while self.pending and not self.finished:
             pending = self.pending.pop()
             if pending.family == "envido" and team_of(pending.chanter) != team:
@@ -693,7 +731,7 @@ class Contest:
 
     def _finish(self, team: int) -> None:
         self.winner = team
-        self.finished = True
+        self._enter(Phase.FINISHED)
         self._award(team, truco_points(self.truco_accepted))
 
     def _award(self, team: int, points: int) -> None:
@@ -702,10 +740,8 @@ class Contest:
         self.points[team] += points
         if self.live_scores()[team] >= TARGET:
             # The partido ends right away; pending cantos have no effect (11.10).
-            self.finished = True
             self.match_point = True
-            self.pending.clear()
-            self.declaration = None
+            self._enter(Phase.FINISHED)
 
 
 class PicaPicaHand:
@@ -737,6 +773,15 @@ class PicaPicaHand:
     @property
     def points(self) -> list[int]:
         return [sum(d.points[t] for d in self.duels) for t in (0, 1)]
+
+    @property
+    def phase(self) -> Phase:
+        return Phase.FINISHED if self.finished else self.current.phase
+
+    @property
+    def duel_number(self) -> int:
+        """1, 2 or 3: the duelo being played (or the last one played)."""
+        return len(self.duels)
 
     @property
     def to_act(self) -> int | None:

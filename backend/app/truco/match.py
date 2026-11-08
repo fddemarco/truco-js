@@ -35,6 +35,14 @@ class ResultKind(StrEnum):
     DOBLE_DESCALIFICACION = "doble_descalificacion"
 
 
+class MatchPhase(StrEnum):
+    DEALING = "dealing"  # between manos: the next deal is due
+    IN_HAND = "in_hand"
+    CLAIMS_OPEN = "claims_open"  # interactive: reclamos on the last mano, until the next deal
+    OVER = "over"  # sporting or administrative result
+    HOMOLOGATED = "homologated"  # the result is closed (16.4)
+
+
 class MatchError(RuntimeError):
     pass
 
@@ -83,6 +91,18 @@ class Match:
     @property
     def finished(self) -> bool:
         return self.result is not None
+
+    @property
+    def phase(self) -> MatchPhase:
+        if self.homologated:
+            return MatchPhase.HOMOLOGATED
+        if self.result is not None:
+            return MatchPhase.OVER
+        if self.hand is not None:
+            return MatchPhase.IN_HAND
+        if self._claimable is not None and self._claimable.claims_open:
+            return MatchPhase.CLAIMS_OPEN
+        return MatchPhase.DEALING
 
     @property
     def last_hand(self) -> Contest | PicaPicaHand | None:

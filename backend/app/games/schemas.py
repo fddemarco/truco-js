@@ -1,11 +1,13 @@
 """API models for game sessions: setup, per-seat views and actions."""
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from app.games.characters import Character
 from app.truco.config import RuleMode
-from app.truco.hand import ActionKind
+from app.truco.hand import ActionKind, Phase
+from app.truco.match import MatchPhase
 from app.truco.signals import BodySpot, Sena
 
 READ = ConfigDict(json_schema_serialization_defaults_required=True)
@@ -14,13 +16,19 @@ READ = ConfigDict(json_schema_serialization_defaults_required=True)
 class SeatSetup(BaseModel):
     kind: Literal["human", "bot"]
     name: str = Field("", max_length=40)
+    character: Character | None = None  # default: a saved bot's, else one free
     bot_preset: str | None = None  # a preset key, or
     bot_id: int | None = None  # a saved bot
+
+
+TeamName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=24)]
 
 
 class GameCreate(BaseModel):
     mode: RuleMode = RuleMode.STRICT
     seats: list[SeatSetup] = Field(min_length=6, max_length=6)
+    # Team 0, team 1. Default: drawn from a list.
+    team_names: list[TeamName] | None = Field(None, min_length=2, max_length=2)
 
 
 class GameCreated(BaseModel):
@@ -51,17 +59,16 @@ class ActionModel(BaseModel):
     sena: Sena | None = None
 
 
-class ActRequest(BaseModel):
+class TokenRequest(BaseModel):
     token: str
+    look: int | None = Field(None, ge=0, le=5)  # the seat the viewer's camera is on
+
+
+class ActRequest(TokenRequest):
     action: ActionModel
 
 
-class TokenRequest(BaseModel):
-    token: str
-
-
-class SenaRequest(BaseModel):
-    token: str
+class SenaRequest(TokenRequest):
     sena: Sena
     spot: BodySpot
     duration_ms: int = Field(ge=100, le=5000)
@@ -75,12 +82,14 @@ class SeatView(BaseModel):
     team: int
     number: int  # reserved number 1-2-3 (3.4)
     name: str
+    character: Character
     kind: Literal["human", "bot"]
     joined: bool
     in_play: bool  # takes part in the current mano or duelo
     active: bool
     cards_left: int
     shown: list[CardModel] = []  # cards shown to the table (mostrar)
+    played: list[CardModel] = []  # cards this seat played this mano, in order
 
 
 class PlayView(BaseModel):
@@ -149,12 +158,16 @@ class GameView(BaseModel):
     version: int
     server_ms: int
     started: bool
+    match_phase: MatchPhase
     seats: list[SeatView]
+    team_names: list[str]
     score: list[int]
     hand_number: int
     hand_kind: str | None = None
     dealer: int
     mano: int | None = None
+    pie: int | None = None  # the last to play in the mano or duelo
+    phase: Phase | None = None  # of the mano (or current duelo) in progress
     to_act: int | None = None
     duel: list[int] | None = None  # the two seats of the current duelo de pica-pica
     rounds: list[list[PlayView]] = []

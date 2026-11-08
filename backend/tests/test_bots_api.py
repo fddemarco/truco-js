@@ -46,3 +46,27 @@ def test_invalid_settings_or_name_rejected(client):
 
 def test_delete_missing_bot(client):
     assert client.delete("/api/bots/99").status_code == 404
+
+
+def test_update_a_bot(client):
+    settings = BotSettings().model_dump(mode="json")
+    bot = client.post("/api/bots", json={"name": "Uno", "settings": settings}).json()
+    assert bot["character"] is None
+    other = client.post("/api/bots", json={"name": "Dos", "settings": settings}).json()
+    changed = BotSettings(envido_sing="always").model_dump(mode="json")
+    res = client.put(
+        f"/api/bots/{bot['id']}",
+        json={"name": "Uno bis", "settings": changed, "character": "tiburon"},
+    )
+    assert res.status_code == 200
+    assert res.json()["name"] == "Uno bis" and res.json()["settings"] == changed
+    assert res.json()["character"] == "tiburon"
+    # Only the fields sent change; null clears the character.
+    res = client.put(f"/api/bots/{bot['id']}", json={"character": None})
+    assert res.json()["name"] == "Uno bis" and res.json()["character"] is None
+    # Names stay unique, but a bot keeps its own.
+    assert client.put(f"/api/bots/{bot['id']}", json={"name": "Dos"}).status_code == 409
+    assert client.put(f"/api/bots/{bot['id']}", json={"name": "uno BIS"}).status_code == 200
+    assert client.put(f"/api/bots/{other['id']}", json={"name": "Prolijo"}).status_code == 409
+    assert client.put("/api/bots/999", json={"name": "X"}).status_code == 404
+    assert client.put(f"/api/bots/{bot['id']}", json={"character": "nadie"}).status_code == 422

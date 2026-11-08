@@ -24,7 +24,7 @@ The table art is raster images made with an image model from the prompts below. 
    `uv run tools/art/avatars.py --help` explains each one. Tips for boxes: for a mirror, use a mouth-only box when the eyes are symmetric. When one brow is raised, take brows, eyes and mouth together, or the flipped mouth corner lands on the other eye. Use `--exact` with one box per eye when hair crosses an eye.
 4. **Review** each candidate against the bar below, then copy the one that passes to `assets/avatars/<id>/<seña>.png`. That folder holds only final images: base, portrait and the eight señas per character. Work files stay in `assets/work/`, which you can delete at any time.
 
-**Cards.** Save them as `assets/cards/<name>.png` (names in §2.5); they need no processing.
+**Cards.** Save them as `assets/cards/<name>.svg` (names in §2.5); they need no processing.
 
 Then run `cd frontend && pnpm import-art`. It lists missing or misnamed files and writes nothing until the set is complete; `--partial` imports what is there. Avatar variants are not trimmed, because they share the frame. Check the result in the app (`make dev`) and commit `frontend/static/avatars/` and `frontend/static/cards/`.
 
@@ -145,13 +145,13 @@ Draw them in the same cartoon-ink style, as full-length figures (not mirrored ha
 
 ### 2.5 File names (`assets/cards/…`)
 
-| Files                                                                                                          | Count |
-| -------------------------------------------------------------------------------------------------------------- | ----- |
-| `<n>-<suit>.png` for n = 1…12 and suit = `espada`, `basto`, `oro`, `copa` (e.g. `1-espada.png`, `12-copa.png`) | 48    |
-| `comodin-1.png`, `comodin-2.png`                                                                               | 2     |
-| `dorso.png`                                                                                                    | 1     |
+| Files | Count |
+| --- | --- |
+| `<suit>_<NN>.svg` for suit = `espadas`, `bastos`, `oros`, `copas` and NN = `01`…`12` (e.g. `espadas_01.svg`, `copas_12.svg`) | 48 |
+| `dorso.svg` | 1 |
+| `comodin-1.svg`, `comodin-2.svg` (optional: truco plays without them) | 0–2 |
 
-The suit in the file name is **singular** (`espada`, not `espadas`).
+SVG is the source format, at 800×1200 (a raster PNG/JPG with the same name also works). `pnpm import-art` renders each card to `frontend/static/cards/<n>-<suit>.webp` at 400×600. The app serves WebP rather than SVG because the cards' paper texture is an SVG filter, which is slow to repaint with many cards on the table. Each SVG must be self-contained, with no references to other files.
 
 ### 2.6 Review checklist
 
@@ -159,3 +159,46 @@ The suit in the file name is **singular** (`espada`, not `espadas`).
 - [ ] The corner numerals are correct and the suit colour and pinta gaps match the suit.
 - [ ] All 51 cards share the same paper, frame and line style.
 - [ ] The cards are readable at the table's size (about 96 px wide).
+
+## Part 3: The table (room, felt, wood)
+
+Optional: without these the table falls back to CSS gradients. Put them in `assets/ui/` and run
+`pnpm import-art --partial`; they are written to `frontend/static/ui/*.webp`.
+
+### 3.1 Style guide
+
+Warm, slightly painterly realism that matches the avatars and cards: an old Buenos Aires
+club or bodegón at night, amber lamp light, deep greens and browns. No text, no logos, no
+people in focus. Nothing busy in the centre: the table and the cards go on top.
+
+### 3.2 Prompts
+
+- **`bg-room.png`** (1920×1080): > [style guide] An out-of-focus interior of an old club at night, seen from a seat at a card table: wooden panelled walls, a bar with bottles far behind, hanging lamps with warm amber light, other card tables blurred in the background. Strong depth of field, dark vignette at the edges, the centre slightly darker so a table can sit on top.
+- **`felt.png`** (1024×1024): > A **seamless, tileable** texture of dark green billiard felt (#1f6b38), seen straight from above, evenly lit, with fine fibres and very subtle noise. No seams, no lighting gradient, no shadows, no objects.
+- **`wood.png`** (1024×1024): > A **seamless, tileable** texture of dark lacquered mahogany for the rim of a card table, seen straight from above, horizontal grain, a soft varnish sheen, evenly lit. No seams, no knots near the edges, no objects.
+
+### 3.3 Review checklist
+
+- [ ] `felt.png` and `wood.png` tile without visible seams (check a 3×3 tiling).
+- [ ] The cards and the green chips stay readable on top of the felt.
+- [ ] `bg-room.png` has nothing sharp or bright in the middle third.
+
+## Part 4: Music and sound effects
+
+Optional: a missing file stays silent. Put them in `assets/audio/` as `.ogg` (or `.mp3`/`.wav`
+with ffmpeg installed) and run `pnpm import-art --partial`; they are written to
+`frontend/static/audio/<name>.ogg`. Normalise to about −16 LUFS (music) and −12 LUFS (effects),
+and trim the silence at the start of the effects.
+
+| File | What | Length |
+| --- | --- | --- |
+| `music-1.ogg` | Instrumental lo-fi milonga/tango for a club at night: bandoneón, guitar, soft double bass, brushes. Calm, no vocals, loops cleanly. | 2–3 min |
+| `music-2.ogg` (optional) | A second track in the same mood, a little more upbeat. | 2–3 min |
+| `card.ogg` | A card slapped onto felt. | < 0.4 s |
+| `shuffle.ogg` | A riffle shuffle of a small deck. | ~1.5 s |
+| `cut.ogg` | A deck being cut and squared on a table. | < 0.6 s |
+| `deal.ogg` | Cards flicked out in quick succession. | < 1 s |
+| `fosforo.ogg` | A wooden match laid on a wooden table (a point scored). | < 0.4 s |
+| `ronda.ogg` | A soft, warm chime (a ronda won). | < 0.8 s |
+| `win.ogg` | A short, cheerful bandoneón flourish (the partido won). | 2–3 s |
+| `click.ogg` | A soft wooden click for buttons. | < 0.2 s |

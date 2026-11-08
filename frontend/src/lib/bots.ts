@@ -1,4 +1,12 @@
 import type { BotSettings, CardOrder, EnvidoCall, Policy } from "$lib/api/client";
+import type { Character } from "$lib/avatar/avatar";
+
+/** A bot as the editor saves it. `character: null`: whichever is free at the table. */
+export interface BotDraft {
+  name: string;
+  character: Character | null;
+  settings: BotSettings;
+}
 
 export const CARD_ORDERS: CardOrder[] = [
   "strongest_first",

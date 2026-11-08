@@ -3,7 +3,7 @@ from sqlmodel import Session, func, select
 
 from app.bots.settings import PRESETS, BotPreset
 from app.db import get_session
-from app.models import BotConfig, BotConfigCreate, BotConfigRead
+from app.models import BotConfig, BotConfigCreate, BotConfigRead, BotConfigUpdate
 
 router = APIRouter(prefix="/bots", tags=["bots"])
 
@@ -19,15 +19,43 @@ def list_bots(session: Session = Depends(get_session)) -> list[BotConfigRead]:
     return [BotConfigRead.model_validate(b) for b in bots]
 
 
-@router.post("", status_code=201)
-def create_bot(body: BotConfigCreate, session: Session = Depends(get_session)) -> BotConfigRead:
-    name = body.name
+def _check_name(session: Session, name: str, bot_id: int | None = None) -> None:
     taken = session.exec(
         select(BotConfig).where(func.lower(BotConfig.name) == name.lower())
     ).first()
-    if taken or any(p.name.lower() == name.lower() for p in PRESETS):
+    if (taken and taken.id != bot_id) or any(p.name.lower() == name.lower() for p in PRESETS):
         raise HTTPException(409, f"A bot named {name!r} already exists")
-    bot = BotConfig(name=name, settings=body.settings.model_dump(mode="json"))
+
+
+@router.post("", status_code=201)
+def create_bot(body: BotConfigCreate, session: Session = Depends(get_session)) -> BotConfigRead:
+    _check_name(session, body.name)
+    bot = BotConfig(
+        name=body.name,
+        settings=body.settings.model_dump(mode="json"),
+        character=body.character,
+    )
+    session.add(bot)
+    session.commit()
+    session.refresh(bot)
+    return BotConfigRead.model_validate(bot)
+
+
+@router.put("/{bot_id}")
+def update_bot(
+    bot_id: int, body: BotConfigUpdate, session: Session = Depends(get_session)
+) -> BotConfigRead:
+    """Change a saved bot. Only the fields sent change; `character: null` clears it."""
+    bot = session.get(BotConfig, bot_id)
+    if bot is None:
+        raise HTTPException(404, "Bot not found")
+    if body.name is not None:
+        _check_name(session, body.name, bot_id)
+        bot.name = body.name
+    if body.settings is not None:
+        bot.settings = body.settings.model_dump(mode="json")
+    if "character" in body.model_fields_set:
+        bot.character = body.character
     session.add(bot)
     session.commit()
     session.refresh(bot)

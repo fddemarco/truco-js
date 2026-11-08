@@ -64,7 +64,11 @@ export interface paths {
       cookie?: never;
     };
     get?: never;
-    put?: never;
+    /**
+     * Update Bot
+     * @description Change a saved bot. Only the fields sent change; `character: null` clears it.
+     */
+    put: operations["update_bot_api_bots__bot_id__put"];
     post?: never;
     /** Delete Bot */
     delete: operations["delete_bot_api_bots__bot_id__delete"];
@@ -114,7 +118,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Game View */
+    /**
+     * Game View
+     * @description `look`: the seat the viewer's camera is on; only its señas are visible (14.4).
+     */
     get: operations["game_view_api_games__game_id__get"];
     put?: never;
     post?: never;
@@ -175,6 +182,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/logs": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Receive Logs */
+    post: operations["receive_logs_api_logs_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -183,6 +207,8 @@ export interface components {
     ActRequest: {
       /** Token */
       token: string;
+      /** Look */
+      look?: number | null;
       action: components["schemas"]["ActionModel-Input"];
     };
     /**
@@ -244,6 +270,7 @@ export interface components {
       /** Name */
       name: string;
       settings: components["schemas"]["BotSettings-Input"];
+      character?: components["schemas"]["Character"] | null;
     };
     /** BotConfigRead */
     BotConfigRead: {
@@ -252,11 +279,19 @@ export interface components {
       /** Name */
       name: string;
       settings: components["schemas"]["BotSettings-Output"];
+      character: components["schemas"]["Character"] | null;
       /**
        * Created At
        * Format: date-time
        */
       created_at: string;
+    };
+    /** BotConfigUpdate */
+    BotConfigUpdate: {
+      /** Name */
+      name?: string | null;
+      settings?: components["schemas"]["BotSettings-Input"] | null;
+      character?: components["schemas"]["Character"] | null;
     };
     /** BotPreset */
     BotPreset: {
@@ -375,6 +410,37 @@ export interface components {
      */
     CardOrder: "strongest_first" | "weakest_first" | "cheapest_winner" | "random";
     /**
+     * Character
+     * @enum {string}
+     */
+    Character: "tiburon" | "maniaca" | "roca" | "novato" | "calculadora" | "fanfarron";
+    /** ClientLogBatch */
+    ClientLogBatch: {
+      /** Session Id */
+      session_id: string;
+      /** Entries */
+      entries: components["schemas"]["ClientLogEntry"][];
+    };
+    /** ClientLogEntry */
+    ClientLogEntry: {
+      /** Ts */
+      ts: string;
+      /**
+       * Level
+       * @enum {string}
+       */
+      level: "debug" | "info" | "warn" | "error";
+      /** Event */
+      event: string;
+      /**
+       * Fields
+       * @default {}
+       */
+      fields?: {
+        [key: string]: unknown;
+      };
+    };
+    /**
      * EnvidoCall
      * @enum {string}
      */
@@ -419,6 +485,8 @@ export interface components {
       mode?: components["schemas"]["RuleMode"];
       /** Seats */
       seats: components["schemas"]["SeatSetup"][];
+      /** Team Names */
+      team_names?: string[] | null;
     };
     /** GameCreated */
     GameCreated: {
@@ -436,8 +504,11 @@ export interface components {
       server_ms: number;
       /** Started */
       started: boolean;
+      match_phase: components["schemas"]["MatchPhase"];
       /** Seats */
       seats: components["schemas"]["SeatView"][];
+      /** Team Names */
+      team_names: string[];
       /** Score */
       score: number[];
       /** Hand Number */
@@ -448,6 +519,9 @@ export interface components {
       dealer: number;
       /** Mano */
       mano: number | null;
+      /** Pie */
+      pie: number | null;
+      phase: components["schemas"]["Phase"] | null;
       /** To Act */
       to_act: number | null;
       /** Duel */
@@ -551,6 +625,11 @@ export interface components {
       /** Token */
       token: string;
     };
+    /**
+     * MatchPhase
+     * @enum {string}
+     */
+    MatchPhase: "dealing" | "in_hand" | "claims_open" | "over" | "homologated";
     /** PendingView */
     PendingView: {
       /**
@@ -565,6 +644,12 @@ export interface components {
       /** Irregular */
       irregular: boolean;
     };
+    /**
+     * Phase
+     * @description The phase of a contest; see `docs/state-machine.md`.
+     * @enum {string}
+     */
+    Phase: "playing" | "answering" | "declaring" | "finished";
     /** PlayView */
     PlayView: {
       /** Seat */
@@ -600,6 +685,7 @@ export interface components {
        * @default
        */
       name?: string;
+      character?: components["schemas"]["Character"] | null;
       /** Bot Preset */
       bot_preset?: string | null;
       /** Bot Id */
@@ -615,6 +701,7 @@ export interface components {
       number: number;
       /** Name */
       name: string;
+      character: components["schemas"]["Character"];
       /**
        * Kind
        * @enum {string}
@@ -633,6 +720,11 @@ export interface components {
        * @default []
        */
       shown: components["schemas"]["CardModel"][];
+      /**
+       * Played
+       * @default []
+       */
+      played: components["schemas"]["CardModel"][];
     };
     /**
      * Sena
@@ -644,6 +736,8 @@ export interface components {
     SenaRequest: {
       /** Token */
       token: string;
+      /** Look */
+      look?: number | null;
       sena: components["schemas"]["Sena"];
       spot: components["schemas"]["BodySpot"];
       /** Duration Ms */
@@ -676,6 +770,8 @@ export interface components {
     TokenRequest: {
       /** Token */
       token: string;
+      /** Look */
+      look?: number | null;
     };
     /** ValidationError */
     ValidationError: {
@@ -774,6 +870,41 @@ export interface operations {
     responses: {
       /** @description Successful Response */
       201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["BotConfigRead"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  update_bot_api_bots__bot_id__put: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        bot_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BotConfigUpdate"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
         headers: {
           [name: string]: unknown;
         };
@@ -893,6 +1024,7 @@ export interface operations {
     parameters: {
       query?: {
         token?: string | null;
+        look?: number | null;
       };
       header?: never;
       path: {
@@ -1015,6 +1147,37 @@ export interface operations {
         content: {
           "application/json": components["schemas"]["GameView"];
         };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  receive_logs_api_logs_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ClientLogBatch"];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
       };
       /** @description Validation Error */
       422: {

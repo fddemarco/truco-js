@@ -76,7 +76,8 @@ def test_one_human_against_bots_plays_a_full_partido(client):
     v = my_turn(client, game, token)
     assert v["started"] and v["me"] == 0
     assert len(v["my_cards"]) == 3
-    assert v["seats"][0]["name"] == "Ana" and v["seats"][1]["name"] == "Prolijo"
+    # A bot plays as its character.
+    assert v["seats"][0]["name"] == "Ana" and v["seats"][1]["name"] == "Maníaca"
     end = play_until_the_end(client, game, token)
     assert max(end["score"]) == 30
     assert end["result"]["winner"] in (0, 1)
@@ -196,3 +197,129 @@ def test_senas_only_in_interactive_mode(client):
     ):
         res = client.post(f"/api/games/{game}/sena", json={"token": token, **sena, **gone})
         assert res.status_code == 422
+
+
+def test_a_seat_only_sees_the_senas_of_the_player_across_it_looks_at(client):
+    # 14.4 / Anexo C: señas are only seen face to face, so a seat sees just the player across
+    # its camera is on. Seat 0 (side 0) looks across at 5, 4 or 3; seat 1 is beside it.
+    game = create(client, [HUMAN] * 3 + [BOT, HUMAN, BOT], mode="interactive")
+    tokens = {s: join(client, game, s) for s in (0, 1, 2, 4)}
+    first = view(client, game, tokens[0])
+    assert first["started"] and first["hand_kind"] != "pica_pica"  # every seat may signal
+    sena = {"sena": "sena_05", "spot": "labio_inferior", "duration_ms": 3000}
+
+    def make(seat):
+        res = client.post(f"/api/games/{game}/sena", json={"token": tokens[seat], **sena})
+        return res.status_code
+
+    def seen_by(seat, look=None):
+        params = {"token": tokens[seat]} | ({"look": look} if look is not None else {})
+        return {s["seat"] for s in client.get(f"/api/games/{game}", params=params).json()["senas"]}
+
+    assert make(4) == 200 and make(1) == 200
+    assert seen_by(0, look=4) == {4}
+    assert seen_by(0, look=5) == set()  # looking at someone else
+    assert seen_by(0) == set()  # the default look is straight across: seat 5
+    assert 1 not in seen_by(0, look=1)  # beside, never visible, even if asked
+    assert seen_by(1) == {1, 4}  # its own, and 4 straight across
+    assert {1, 4} <= {s["seat"] for s in view(client, game)["senas"]}  # spectators see all
+
+
+def test_played_cards_stay_on_the_table_per_seat(client):
+    game = create(client, [HUMAN] + [BOT] * 5)
+    token = join(client, game, 0)
+    v = my_turn(client, game, token)
+    # Answer whatever blocks play (a truco from a bot...) until a card can be played.
+    while not any(a["kind"] == "jugar" for a in v["actions"]):
+        v = client.post(
+            f"/api/games/{game}/act", json={"token": token, "action": pick(v["actions"])}
+        ).json()
+        v = my_turn(client, game, token)
+    before = {s["seat"]: len(s["played"]) for s in v["seats"]}
+    card = next(a for a in v["actions"] if a["kind"] == "jugar")
+    v = client.post(f"/api/games/{game}/act", json={"token": token, "action": card}).json()
+    mine = v["seats"][0]["played"]
+    assert len(mine) == before[0] + 1 and mine[-1] == card["card"]
+    total = sum(len(s["played"]) for s in v["seats"])
+    assert total == sum(len(r) for r in v["rounds"]) or v["hand_kind"] == "pica_pica"
+
+
+def test_each_closed_ronda_is_announced(client):
+    # 7: once the cards of a ronda are down, an event names its winning seat (none: parda).
+    game = create(client, [HUMAN] + [BOT] * 5)
+    token = join(client, game, 0)
+    seen: list[dict] = []
+    v = view(client, game, token)
+    for _ in range(3000):
+        seen += v["events"]
+        if v["result"]:
+            break
+        if v["can_deal"]:
+            v = client.post(f"/api/games/{game}/deal", json={"token": token}).json()
+        else:
+            v = client.post(
+                f"/api/games/{game}/act", json={"token": token, "action": pick(v["actions"])}
+            ).json()
+    rondas = [e for e in seen if e["kind"] == "ronda"]
+    assert rondas  # a whole partido closes rondas
+    for e in rondas:
+        assert e["number"] in (1, 2, 3)
+        assert e["seat"] is None or 0 <= e["seat"] < 6
+
+
+def test_view_carries_the_phase_of_the_mano_and_the_partido(client):
+    game = create(client, [HUMAN] * 6)
+    assert view(client, game)["match_phase"] == "dealing"
+    assert view(client, game)["phase"] is None
+    tokens = [join(client, game, s) for s in range(6)]
+    v = view(client, game)
+    assert (v["match_phase"], v["phase"]) == ("in_hand", "playing")
+    seat = v["to_act"]
+    res = client.post(
+        f"/api/games/{game}/act", json={"token": tokens[seat], "action": {"kind": "truco"}}
+    )
+    v = res.json()
+    assert v["phase"] == "answering" and v["to_act"] == (seat + 1) % 6
+
+
+def test_characters_are_never_repeated_and_choices_are_kept(client):
+    seats = [{**HUMAN, "character": "roca"}, {**BOT, "character": "roca"}] + [BOT] * 4
+    game = create(client, seats)
+    v = view(client, game)
+    characters = [s["character"] for s in v["seats"]]
+    assert characters[0] == "roca"
+    assert len(set(characters)) == 6
+    assert v["seats"][1]["name"] == "Maníaca"  # lost "roca": took a free one, and its name
+
+
+def test_saved_bots_keep_their_name_and_character(client):
+    settings = BotSettings().model_dump(mode="json")
+    bot = client.post(
+        "/api/bots", json={"name": "Doña Rosa", "settings": settings, "character": "novato"}
+    ).json()
+    saved = {"kind": "bot", "bot_id": bot["id"]}
+    game = create(client, [HUMAN, saved] + [BOT] * 4)
+    seat = view(client, game)["seats"][1]
+    assert (seat["name"], seat["character"]) == ("Doña Rosa", "novato")
+
+
+def test_team_names_are_drawn_or_given(client):
+    drawn = view(client, create(client, [HUMAN] + [BOT] * 5))["team_names"]
+    assert len(drawn) == 2 and drawn[0] != drawn[1]
+    res = client.post(
+        "/api/games",
+        json={"seats": [HUMAN] + [BOT] * 5, "team_names": [" Los Leones ", "Las Liebres"]},
+    )
+    assert view(client, res.json()["id"])["team_names"] == ["Los Leones", "Las Liebres"]
+    bad = client.post("/api/games", json={"seats": [HUMAN] + [BOT] * 5, "team_names": ["Solo"]})
+    assert bad.status_code == 422
+
+
+def test_view_names_the_mano_and_the_pie(client):
+    game = create(client, [HUMAN] + [BOT] * 5)
+    v = my_turn(client, game, join(client, game, 0))
+    if v["hand_kind"] == "redonda":
+        # The mano is right of the dealer; the pie is the dealer (5.6).
+        assert v["mano"] == (v["dealer"] + 1) % 6 and v["pie"] == v["dealer"]
+    else:
+        assert {v["mano"], v["pie"]} == set(v["duel"])

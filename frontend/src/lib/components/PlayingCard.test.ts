@@ -47,4 +47,11 @@ describe("PlayingCard", () => {
     const img = screen.getByRole("img", { name: "3 de oros" });
     expect(img.tagName).toBe("IMG");
   });
+
+  it("takes the caller's width instead of the default one", () => {
+    render(PlayingCard, { number: 1, suit: "espada", class: "w-12" });
+    const img = screen.getByRole("img", { name: "1 de espadas" });
+    expect(img.classList.contains("w-12")).toBe(true);
+    expect(img.classList.contains("w-24")).toBe(false);
+  });
 });
