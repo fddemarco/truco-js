@@ -1,13 +1,15 @@
 /**
  * Keyboard play, with configurable bindings. Keys are physical (`KeyboardEvent.code`), so they
- * sit in the same place on any layout. Two presets and a custom set (kept in the profile):
- * - "mnemonic": letters by their initial (Q quiero, N no quiero, E envido, T truco...), cards
- *   on A S D, señas held on 1–8.
- * - "rows": one row per job: 1 2 3 the cards, the top row the cantos and answers, the home row
- *   everything else, the bottom row the señas.
+ * sit in the same place on any layout. A preset, or a custom set laid over it (in the profile).
+ * "qwerty" places each move by how often it comes up, for the left hand on the keyboard and the
+ * right on the mouse: the cards rest under three fingers (S D F), the answers sit right above
+ * them (E quiero, W no quiero), truco on R, the envido family down the index column (T G B),
+ * son buenas on A. Moves that give the mano away (Q, Z) and the rare interactive ones (X C V,
+ * Y H) are a reach away. Space cuts, señas are held on 1–8.
  */
 import type { ActionKind, CardModel, GameAction } from "$lib/api/client";
-import { SENAS, SPOTS, type BodySpot, type Sena } from "$lib/avatar/avatar";
+import { SENA_NAMES, SENAS, SPOTS, type BodySpot, type Sena } from "$lib/avatar/avatar";
+import { t, type MessageKey } from "$lib/i18n.svelte";
 
 export const PLAY_COMMANDS = [
   "card1",
@@ -36,32 +38,70 @@ export type PlayCommand = (typeof PLAY_COMMANDS)[number];
 export type Command = PlayCommand | Sena;
 export const COMMANDS: Command[] = [...PLAY_COMMANDS, ...SENAS];
 
+/** The commands as the key lists show them, by group (titles are i18n keys). */
+export const KEY_GROUPS: { title: MessageKey; commands: Command[] }[] = [
+  { title: "keys.group.cards", commands: ["card1", "card2", "card3"] },
+  {
+    title: "keys.group.cantos",
+    commands: [
+      "quiero",
+      "no_quiero",
+      "envido",
+      "real_envido",
+      "falta_envido",
+      "truco",
+      "son_buenas",
+    ],
+  },
+  {
+    title: "keys.group.other",
+    commands: [
+      "me_voy_al_mazo",
+      "nos_vamos_al_mazo",
+      "objetar",
+      "perdon",
+      "mostrar",
+      "tapar",
+      "reclamar",
+    ],
+  },
+  { title: "keys.group.table", commands: ["cut", "look_left", "look_right"] },
+  { title: "keys.group.senas", commands: SENAS },
+];
+
+/** What a command does, in the UI language (señas by their name). */
+export function commandLabel(c: Command): string {
+  return c.startsWith("sena_")
+    ? SENA_NAMES[c as Sena]
+    : t(`keys.cmd.${c as PlayCommand}` as MessageKey);
+}
+
 /** Command → key code ("" = unbound). */
 export type Bindings = Record<Command, string>;
 
-export const KEY_PRESETS = ["mnemonic", "rows"] as const;
+export const KEY_PRESETS = ["qwerty"] as const;
 export type KeyPreset = (typeof KEY_PRESETS)[number];
 export type KeyChoice = KeyPreset | "custom";
 
 export const PRESET_BINDINGS: Record<KeyPreset, Bindings> = {
-  mnemonic: {
-    card1: "KeyA",
-    card2: "KeyS",
-    card3: "KeyD",
-    quiero: "KeyQ",
-    no_quiero: "KeyN",
-    envido: "KeyE",
-    real_envido: "KeyR",
-    falta_envido: "KeyF",
-    truco: "KeyT",
-    son_buenas: "KeyB",
-    me_voy_al_mazo: "KeyM",
-    nos_vamos_al_mazo: "KeyV",
-    objetar: "KeyO",
-    perdon: "KeyP",
-    mostrar: "KeyW",
-    tapar: "KeyX",
+  qwerty: {
+    card1: "KeyS",
+    card2: "KeyD",
+    card3: "KeyF",
+    quiero: "KeyE",
+    no_quiero: "KeyW",
+    truco: "KeyR",
+    envido: "KeyT",
+    real_envido: "KeyG",
+    falta_envido: "KeyB",
+    son_buenas: "KeyA",
+    me_voy_al_mazo: "KeyQ",
+    nos_vamos_al_mazo: "KeyZ",
+    objetar: "KeyX",
     reclamar: "KeyC",
+    perdon: "KeyV",
+    mostrar: "KeyY",
+    tapar: "KeyH",
     cut: "Space",
     look_left: "ArrowLeft",
     look_right: "ArrowRight",
@@ -74,42 +114,21 @@ export const PRESET_BINDINGS: Record<KeyPreset, Bindings> = {
     sena_07: "Digit7",
     sena_12: "Digit8",
   },
-  rows: {
-    card1: "Digit1",
-    card2: "Digit2",
-    card3: "Digit3",
-    quiero: "KeyQ",
-    no_quiero: "KeyW",
-    envido: "KeyE",
-    real_envido: "KeyR",
-    falta_envido: "KeyT",
-    truco: "KeyY",
-    son_buenas: "KeyA",
-    me_voy_al_mazo: "KeyS",
-    nos_vamos_al_mazo: "KeyD",
-    objetar: "KeyF",
-    perdon: "KeyG",
-    mostrar: "KeyH",
-    tapar: "KeyJ",
-    reclamar: "KeyK",
-    cut: "Space",
-    look_left: "ArrowLeft",
-    look_right: "ArrowRight",
-    sena_01: "KeyZ",
-    sena_02: "KeyX",
-    sena_03: "KeyC",
-    sena_04: "KeyV",
-    sena_05: "KeyB",
-    sena_06: "KeyN",
-    sena_07: "KeyM",
-    sena_12: "Comma",
-  },
 };
 
-/** The bindings in use: a preset, or the custom set laid over the mnemonic one. */
+/** The preset under a custom set: what any command it doesn't rebind stays on. */
+export const DEFAULT_PRESET: KeyPreset = "qwerty";
+
+/**
+ * The bindings in use: a preset, or the custom set laid over the default one. A default key
+ * the custom set took for another command is left unbound, so two commands never share a key.
+ */
 export function resolveBindings(choice: KeyChoice, custom: Partial<Bindings> = {}): Bindings {
   if (choice !== "custom") return { ...PRESET_BINDINGS[choice] };
-  return { ...PRESET_BINDINGS.mnemonic, ...custom };
+  const taken = new Set(Object.values(custom).filter(Boolean));
+  const base = { ...PRESET_BINDINGS[DEFAULT_PRESET] };
+  for (const c of COMMANDS) if (!(c in custom) && taken.has(base[c])) base[c] = "";
+  return { ...base, ...custom };
 }
 
 /** Bind `code` to `command`; any other command on that key is left unbound (no clashes). */

@@ -1,58 +1,23 @@
 <script lang="ts">
-  import { SENA_NAMES, SENAS } from "$lib/avatar/avatar";
   import { t, type MessageKey } from "$lib/i18n.svelte";
   import {
     bindable,
+    commandLabel,
     KEY_PRESETS,
+    KEY_GROUPS,
     keyLabel,
     PRESET_BINDINGS,
     rebind,
     type Command,
     type KeyChoice,
-    type PlayCommand,
   } from "$lib/keys";
   import { bindings, profile, updateProfile } from "$lib/profile.svelte";
 
-  const GROUPS: { title: MessageKey; commands: Command[] }[] = [
-    { title: "keys.group.cards", commands: ["card1", "card2", "card3"] },
-    {
-      title: "keys.group.cantos",
-      commands: [
-        "quiero",
-        "no_quiero",
-        "envido",
-        "real_envido",
-        "falta_envido",
-        "truco",
-        "son_buenas",
-      ],
-    },
-    {
-      title: "keys.group.other",
-      commands: [
-        "me_voy_al_mazo",
-        "nos_vamos_al_mazo",
-        "objetar",
-        "perdon",
-        "mostrar",
-        "tapar",
-        "reclamar",
-      ],
-    },
-    { title: "keys.group.table", commands: ["cut", "look_left", "look_right"] },
-    { title: "keys.group.senas", commands: SENAS },
-  ];
   const CHOICES: KeyChoice[] = [...KEY_PRESETS, "custom"];
 
   const current = $derived(bindings());
   const custom = $derived(profile.keys === "custom");
   let capturing = $state<Command | null>(null);
-
-  function labelOf(c: Command): string {
-    return c.startsWith("sena_")
-      ? SENA_NAMES[c as keyof typeof SENA_NAMES]
-      : t(`keys.cmd.${c as PlayCommand}` as MessageKey);
-  }
 
   function choose(choice: KeyChoice) {
     capturing = null;
@@ -91,7 +56,7 @@
 <svelte:window onkeydowncapture={capture} />
 
 <div class="space-y-4">
-  <div class="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label={t("keys.layout")}>
+  <div class="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label={t("keys.layout")}>
     {#each CHOICES as choice (choice)}
       <button
         type="button"
@@ -122,7 +87,7 @@
   {/if}
 
   <div class="grid gap-4 md:grid-cols-2" data-testid="bindings">
-    {#each GROUPS as group (group.title)}
+    {#each KEY_GROUPS as group (group.title)}
       <section>
         <h3 class="mb-1 text-xs font-semibold tracking-wide text-slate-500 uppercase">
           {t(group.title)}
@@ -130,7 +95,7 @@
         <ul class="divide-y divide-slate-100 rounded-lg border border-slate-200">
           {#each group.commands as c (c)}
             <li class="flex items-center justify-between gap-2 px-3 py-1.5 text-sm">
-              <span>{labelOf(c)}</span>
+              <span>{commandLabel(c)}</span>
               {#if custom}
                 <button
                   type="button"
@@ -140,7 +105,9 @@
                     : current[c]
                       ? 'border-slate-300 bg-slate-50'
                       : 'border-dashed border-red-300 text-red-600'}"
-                  aria-label="{labelOf(c)}: {current[c] ? keyLabel(current[c]) : t('keys.unbound')}"
+                  aria-label="{commandLabel(c)}: {current[c]
+                    ? keyLabel(current[c])
+                    : t('keys.unbound')}"
                   onclick={() => (capturing = capturing === c ? null : c)}
                 >
                   {capturing === c ? t("keys.press") : current[c] ? keyLabel(current[c]) : "—"}

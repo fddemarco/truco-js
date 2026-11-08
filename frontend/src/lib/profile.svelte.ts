@@ -1,9 +1,18 @@
 /**
- * The player on this device: name, character and sound settings, kept in localStorage.
+ * The player on this device: name, character, sound, keys and new-game scoring, kept in
+ * localStorage.
  * Storage can be missing or blocked (private mode): the profile then lives for the session.
  */
 import { CHARACTERS, isCharacter, type Character } from "$lib/avatar/avatar";
-import { COMMANDS, KEY_PRESETS, resolveBindings, type Bindings, type KeyChoice } from "$lib/keys";
+import {
+  COMMANDS,
+  DEFAULT_PRESET,
+  KEY_PRESETS,
+  resolveBindings,
+  type Bindings,
+  type KeyChoice,
+} from "$lib/keys";
+import { DEFAULT_SCORING, parseScoring, type ScoringPrefs } from "$lib/scoring";
 
 export interface Profile {
   name: string;
@@ -14,6 +23,8 @@ export interface Profile {
   /** Key bindings: a preset, or "custom" with `customKeys`. */
   keys: KeyChoice;
   customKeys: Partial<Bindings>;
+  /** New games start with this partido length and canto points (the setup's Puntos tab). */
+  scoring: ScoringPrefs;
 }
 
 const KEY = "profile";
@@ -23,8 +34,9 @@ export const DEFAULT_PROFILE: Profile = {
   musicVolume: 0.4,
   sfxVolume: 0.8,
   muted: false,
-  keys: "mnemonic",
+  keys: DEFAULT_PRESET,
   customKeys: {},
+  scoring: DEFAULT_SCORING,
 };
 
 const clamp = (n: unknown, fallback: number) =>
@@ -50,6 +62,7 @@ export function parseProfile(raw: string | null): Profile {
         ? (data.keys as KeyChoice)
         : DEFAULT_PROFILE.keys,
     customKeys: parseKeys(data.customKeys),
+    scoring: parseScoring(data.scoring),
   };
 }
 

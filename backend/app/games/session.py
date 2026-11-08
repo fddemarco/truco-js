@@ -20,6 +20,7 @@ from app.games.characters import Character, draw_team_names
 from app.games.schemas import (
     ActionModel,
     CardModel,
+    EnvidoStakesView,
     EnvidoView,
     EventView,
     GameView,
@@ -29,9 +30,11 @@ from app.games.schemas import (
     SeatView,
     SenaSeenView,
     SenaView,
+    StepView,
 )
 from app.truco.cards import Card, Suit
 from app.truco.config import GameConfig
+from app.truco.envido import said_in_order, tanto
 from app.truco.hand import Action, ActionKind, Contest, IllegalAction, PicaPicaHand
 from app.truco.match import Match, MatchError
 from app.truco.rounds import round_winner
@@ -41,6 +44,7 @@ from app.truco.table import SEATS, across, number_of, seats_across, team_of
 log = structlog.get_logger("game")
 
 MAX_EVENTS = 40
+MAX_STEPS = 300  # a mano takes far fewer; older steps are dropped
 SENA_VISIBLE_MS = 6000
 
 
@@ -67,6 +71,21 @@ class Seat:
     @property
     def joined(self) -> bool:
         return self.kind == "bot" or self.token is not None
+
+
+@dataclass
+class Step:
+    """One move and the events it set off, with the table right after it as each human seat
+    (and a spectator, None) saw it."""
+
+    index: int
+    seat: int | None  # who moved; None for a deal or the start
+    events: list[EventView]
+    views: dict[int | None, GameView]
+
+    @property
+    def deal(self) -> bool:
+        return any(e.kind == "reparto" for e in self.events)
 
 
 def now_ms() -> int:
@@ -116,6 +135,8 @@ class GameSession:
         self.version = 0
         self.started = False
         self.events: list[EventView] = []
+        self.steps: list[Step] = []
+        self._step_events: list[EventView] = []  # since the last step
         self._contest: Contest | None = None  # last contest shown, kept between manos
 
     # --- requests -------------------------------------------------------------------
@@ -130,9 +151,10 @@ class GameSession:
                 target.name = name.strip()
             log.info("game.joined", game_id=self.id, seat=seat)
             if all(s.joined for s in self.seats):
+                # The table shuffles, cuts and deals the first mano like every other one (deal).
                 self.started = True
                 log.info("game.started", game_id=self.id)
-                self._deal()
+                self._commit(None)  # the table before the first deal
             self._touch()
             return target.token
 
@@ -171,6 +193,8 @@ class GameSession:
                     self._event(EventView(seat=seat, kind="interferencia"))
                     log.warning("game.interference", game_id=self.id, seat=seat, team=team)
             self._after_change(had_hand=True)
+            if self._step_events:
+                self._commit(seat)
             self._run_bots()
             self._touch()
 
@@ -182,52 +206,91 @@ class GameSession:
 
     # --- view -----------------------------------------------------------------------
 
-    def view(self, token: str | None = None, look: int | None = None) -> GameView:
+    def view(
+        self, token: str | None = None, look: int | None = None, since: int | None = None
+    ) -> GameView:
         """The table as `token`'s seat sees it; `look` is the seat its camera is on.
 
         A seat only sees the señas of the player across it is looking at (and its own), as
         faces on its own side of the table can't be seen. Spectators see every seña.
+        The view carries the steps after `since` (see `_steps_for`).
         """
         with self.lock:
             me = self.seat_for(token) if token else None
-            m = self.match
-            hand = m.hand
-            contest = self._current_contest()
-            seats = [self._seat_view(i, contest) for i in range(SEATS)]
-            view = GameView(
-                id=self.id,
-                mode=self.config.mode,
-                version=self.version,
-                server_ms=now_ms(),
-                started=self.started,
-                match_phase=m.phase,
-                seats=seats,
-                team_names=list(self.team_names),
-                score=list(m.score),
-                hand_number=len(m.history) + (1 if hand else 0),
-                hand_kind=m.hand_kind if self.started else None,
-                dealer=m.dealer,
-                phase=hand.phase if hand else None,
-                to_act=hand.to_act if hand else None,
-                can_deal=self.started and hand is None and not m.finished,
-                result=ResultView(kind=m.result.kind, winner=m.result.winner) if m.result else None,
-                events=self.events[-MAX_EVENTS:],
-                me=me,
-            )
-            if contest is not None:
-                self._fill_contest(view, contest, hand)
-            if me is not None:
-                focus = look if look is not None and look in seats_across(me) else across(me)
-                view.senas = [s for s in view.senas if s.seat in (me, focus)]
-                view.my_cards = [card_model(c) for c in self._cards_of(me)]
-                if self.started:
-                    view.actions = [action_model(a) for a in m.actions_for(me)]
-                if contest is not None and me in contest.seats:
-                    view.senas_seen = [
-                        SenaSeenView(seat=s.seat, sena=s.sena, ronda=s.ronda)
-                        for s in contest.senas_seen(me)
-                    ]
+            view = self._build_view(me, look)
+            view.step = self.steps[-1].index if self.steps else -1
+            view.steps, view.base = self._steps_for(me, since)
             return view
+
+    def _build_view(self, me: int | None, look: int | None) -> GameView:
+        """The table as it is now for seat `me` (None: a spectator)."""
+        m = self.match
+        hand = m.hand
+        contest = self._current_contest()
+        seats = [self._seat_view(i, contest) for i in range(SEATS)]
+        view = GameView(
+            id=self.id,
+            mode=self.config.mode,
+            version=self.version,
+            server_ms=now_ms(),
+            started=self.started,
+            match_phase=m.phase,
+            seats=seats,
+            team_names=list(self.team_names),
+            score=list(m.score),
+            target=self.config.scoring.target,
+            malas_max=self.config.scoring.malas_max,
+            hand_number=len(m.history) + (1 if hand else 0),
+            hand_kind=m.hand_kind if self.started else None,
+            dealer=m.dealer,
+            phase=hand.phase if hand else None,
+            to_act=hand.to_act if hand else None,
+            can_deal=self.started and hand is None and not m.finished,
+            result=ResultView(kind=m.result.kind, winner=m.result.winner) if m.result else None,
+            events=self.events[-MAX_EVENTS:],
+            me=me,
+        )
+        if contest is not None:
+            self._fill_contest(view, contest, hand)
+        if me is not None:
+            focus = look if look is not None and look in seats_across(me) else across(me)
+            view.senas = [s for s in view.senas if s.seat in (me, focus)]
+            view.my_cards = [card_model(c) for c in self._cards_of(me)]
+            if self.started:
+                view.actions = [action_model(a) for a in m.actions_for(me)]
+            if contest is not None and me in contest.seats:
+                view.my_tanto = tanto(contest.dealt[me])
+                view.senas_seen = [
+                    SenaSeenView(seat=s.seat, sena=s.sena, ronda=s.ronda)
+                    for s in contest.senas_seen(me)
+                ]
+        return view
+
+    def _steps_for(
+        self, me: int | None, since: int | None
+    ) -> tuple[list[StepView], GameView | None]:
+        """The steps after `since`. Without it (a viewer arriving at the table), the current
+        mano's steps since the viewer's last move, or since the deal, so the moves they missed
+        play out from `base`, the table before them."""
+        if since is not None:
+            return [self._step_view(s, me) for s in self.steps if s.index > since], None
+        if self.match.hand is None:
+            return [], None
+        deal = next((i for i in range(len(self.steps) - 1, -1, -1) if self.steps[i].deal), None)
+        if deal is None:
+            return [], None
+        start = deal
+        for i in range(deal + 1, len(self.steps)):
+            if me is not None and self.steps[i].seat == me:
+                start = i + 1
+        if start == 0 or start >= len(self.steps):
+            return [], None
+        steps = [self._step_view(s, me) for s in self.steps[start:]]
+        return steps, self.steps[start - 1].views[me]
+
+    @staticmethod
+    def _step_view(step: Step, me: int | None) -> StepView:
+        return StepView(index=step.index, seat=step.seat, events=step.events, view=step.views[me])
 
     def _fill_contest(self, view: GameView, contest: Contest, hand) -> None:
         view.mano = contest.mano
@@ -247,6 +310,12 @@ class GameSession:
         view.envido_calls = [str(c) for c in contest.envido_calls]
         view.truco_level = contest.truco_level
         view.truco_accepted = contest.truco_accepted
+        stakes = contest.envido_stakes()
+        if stakes is not None:
+            quiero, no_quiero, team = stakes
+            view.envido_stakes = EnvidoStakesView(
+                quiero=list(quiero), no_quiero=no_quiero, team=team
+            )
         if contest.envido:
             e = contest.envido
             view.envido = EnvidoView(
@@ -255,7 +324,7 @@ class GameSession:
                 team=e.team,
                 points=e.points,
                 winner_seat=e.winner_seat,
-                tantos=dict(e.tantos),
+                tantos=_said(contest),
             )
         if contest.declaration:
             view.declarations = dict(contest.declaration.declared)
@@ -329,14 +398,30 @@ class GameSession:
     def _touch(self) -> None:
         self.version += 1
 
+    def _commit(self, seat: int | None) -> None:
+        """Close a step: the events since the last one, and the table as every human seat and
+        a spectator see it now, so clients show each move on the table as it was then."""
+        events, self._step_events = self._step_events, []
+        index = self.steps[-1].index + 1 if self.steps else 0
+        viewers = [None, *(i for i, s in enumerate(self.seats) if s.kind == "human")]
+        views = {}
+        for me in viewers:
+            view = self._build_view(me, None)
+            view.senas = []  # señas are live, not part of a step
+            views[me] = view
+        self.steps.append(Step(index, seat, events, views))
+        del self.steps[:-MAX_STEPS]
+
     def _event(self, event: EventView) -> None:
         self.events.append(event)
+        self._step_events.append(event)
         del self.events[: -MAX_EVENTS * 2]
 
     def _deal(self) -> None:
         self.match.deal()
         self._contest = None
         self._event(EventView(kind="reparto", number=len(self.match.history) + 1))
+        self._commit(None)
         log.info(
             "game.dealt",
             game_id=self.id,
@@ -389,10 +474,20 @@ class GameSession:
         for c in contests:
             if c.envido is not None and id(c) not in had_envido:
                 e = c.envido
+                said = _said(c)
+                if e.accepted and not self.config.interactive:
+                    # Strict: the engine compared the tantos; say them as the table would hear.
+                    for s, n in said.items():
+                        kind = "declarar" if n is not None else "son_buenas"
+                        self._event(EventView(seat=s, kind=kind, number=n))
                 points = [0, 0]
                 points[e.team] = e.points
-                self._event(EventView(seat=e.winner_seat, kind="envido_resuelto", points=points))
+                won = said.get(e.winner_seat) if e.winner_seat is not None else None
+                self._event(
+                    EventView(seat=e.winner_seat, kind="envido_resuelto", points=points, number=won)
+                )
         self._after_change(had_hand)
+        self._commit(seat)
 
     def _after_change(self, had_hand: bool) -> None:
         m = self.match
@@ -438,6 +533,18 @@ class GameSession:
             settings = self.seats[seat].bot
             assert settings is not None
             self._apply(seat, choose_action(hand, settings, self.rng, seat))
+
+
+def _said(contest: Contest) -> dict[int, int | None]:
+    """The envido as the table heard it: interactive, what was declared; strict, what would
+    have been said in turn from the real tantos (11.4, 11.5), never a tanto kept quiet."""
+    e = contest.envido
+    if e is None or not e.accepted:
+        return {}
+    if contest.config.interactive:
+        return dict(e.tantos)
+    real = {s: n for s, n in e.tantos.items() if n is not None}
+    return said_in_order(list(real), real)
 
 
 _games: dict[str, GameSession] = {}

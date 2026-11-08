@@ -12,12 +12,10 @@ from enum import StrEnum
 from app.truco.cards import Card, shuffled_deck
 from app.truco.config import GameConfig
 from app.truco.hand import Action, ActionKind, Contest, PicaPicaHand
-from app.truco.score import TARGET, capped
+from app.truco.scoring import PICA_PICA_FROM
 from app.truco.signals import SenaEvent
 from app.truco.table import choose_first_dealer, mano_of, order_from, other, right_of
 
-PICA_PICA_FROM = 5
-PICA_PICA_UNTIL = 25
 WARNINGS_TO_LOSE = 2
 
 
@@ -110,8 +108,11 @@ class Match:
         return self._last_hand
 
     def next_hand_kind(self) -> HandKind:
-        """Pica-pica alternates with redonda after a team reaches 5, until one reaches 25 (15.1)."""
-        if not self.pica_pica_started or max(self.score) >= PICA_PICA_UNTIL:
+        """Pica-pica alternates with redonda after a team reaches 5, until one reaches 25 (15.1).
+
+        With another target, until one is as close to it as 25 is to 30 (scoring).
+        """
+        if not self.pica_pica_started or max(self.score) >= self.config.scoring.pica_pica_until:
             return HandKind.REDONDA
         last = self.history[-1].kind
         return HandKind.PICA_PICA if last == HandKind.REDONDA else HandKind.REDONDA
@@ -229,14 +230,14 @@ class Match:
             hand = self.hand
             self._claimable = hand if isinstance(hand, Contest) else hand.duels[-1]
         for t in (0, 1):
-            self.score[t] = capped(self.score[t], points[t])
+            self.score[t] = self.config.scoring.capped(self.score[t], points[t])
         self.history.append(HandRecord(self.hand_kind, self.dealer, points))
         self.hand = None
         self.dealer = right_of(self.dealer)  # 5.7
         if max(self.score) >= PICA_PICA_FROM:
             self.pica_pica_started = True
         for t in (0, 1):
-            if self.score[t] >= TARGET:
+            if self.score[t] >= self.config.scoring.target:
                 self._end(ResultKind.DEPORTIVO, t)
 
     def _rescore_last_hand(self) -> None:
@@ -244,14 +245,14 @@ class Match:
         assert self._last_hand is not None
         before, pica_pica_started = self._before_last
         points = (self._last_hand.points[0], self._last_hand.points[1])
-        self.score = [capped(before[t], points[t]) for t in (0, 1)]
+        self.score = [self.config.scoring.capped(before[t], points[t]) for t in (0, 1)]
         self.history[-1] = replace(self.history[-1], points=points)
         self.pica_pica_started = pica_pica_started or max(self.score) >= PICA_PICA_FROM
         if self.result is not None and self.result.administrative:
             return
         self.result = None
         for t in (0, 1):
-            if self.score[t] >= TARGET:
+            if self.score[t] >= self.config.scoring.target:
                 self._end(ResultKind.DEPORTIVO, t)
 
     def _check_open_for_sanctions(self) -> None:

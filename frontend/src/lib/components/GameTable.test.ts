@@ -37,6 +37,8 @@ function makeView(overrides: Partial<GameView> = {}): GameView {
     })),
     team_names: ["Los Pumas", "Los Teros"],
     score: [3, 7],
+    target: 30,
+    malas_max: 15,
     hand_number: 2,
     hand_kind: "redonda",
     dealer: 5,
@@ -53,11 +55,13 @@ function makeView(overrides: Partial<GameView> = {}): GameView {
     truco_accepted: 0,
     envido: null,
     declarations: {},
+    envido_stakes: null,
     can_deal: false,
     result: null,
     events: [{ seat: 1, kind: "truco", card: null, number: null, points: null, upheld: null }],
     senas: [],
     me: 0,
+    my_tanto: null,
     my_cards: [
       { number: 1, suit: "espada" },
       { number: 4, suit: "oro" },
@@ -68,6 +72,9 @@ function makeView(overrides: Partial<GameView> = {}): GameView {
       action("no_quiero"),
     ],
     senas_seen: [],
+    step: 0,
+    steps: [],
+    base: null,
     ...overrides,
   };
 }
@@ -98,12 +105,25 @@ describe("GameTable", () => {
     expect(onAct).toHaveBeenCalledWith(action("no_quiero"));
   });
 
-  it("declares a tanto from the number pad", async () => {
-    const view = makeView({ actions: [action("declarar", { number: 31 }), action("son_buenas")] });
+  it("declares the real tanto in one click, other numbers behind a toggle", async () => {
+    const declarations = [27, 31].map((n) => action("declarar", { number: n }));
+    const view = makeView({ my_tanto: 27, actions: [...declarations, action("son_buenas")] });
+    const { onAct } = setup(view);
+    expect(screen.getByText("Tu tanto: 27")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Son buenas" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "31" })).toBeNull();
+    await fireEvent.click(screen.getByRole("button", { name: "Otro número" }));
+    await fireEvent.click(screen.getByRole("button", { name: "31" }));
+    expect(onAct).toHaveBeenCalledWith(action("declarar", { number: 31 }));
+    await fireEvent.click(screen.getByRole("button", { name: "Declarar 27" }));
+    expect(onAct).toHaveBeenLastCalledWith(action("declarar", { number: 27 }));
+  });
+
+  it("shows every number when the tanto is unknown", async () => {
+    const view = makeView({ actions: [action("declarar", { number: 31 })] });
     const { onAct } = setup(view);
     await fireEvent.click(screen.getByRole("button", { name: "31" }));
     expect(onAct).toHaveBeenCalledWith(action("declarar", { number: 31 }));
-    expect(screen.getByRole("button", { name: "Son buenas" })).toBeTruthy();
   });
 
   it("lets the cutter cut between manos, with the button or the space bar", async () => {
@@ -122,13 +142,17 @@ describe("GameTable", () => {
     expect(screen.queryByRole("button", { name: /Cortar/ })).toBeNull();
   });
 
-  it("shows the score, the moves and the result", () => {
+  it("shows the score, the result and, when asked for, the moves", async () => {
     setup(makeView({ result: { kind: "deportivo", winner: 1 }, score: [22, 30] }));
     expect(screen.getByTestId("score-1").textContent).toBe("30");
-    // The log shows who by their avatar.
+    // The log shows only while hovered (no click); it shows who by their avatar.
+    expect(screen.queryByTestId("events")).toBeNull();
+    await fireEvent.mouseEnter(screen.getByTestId("moves"));
     const log = screen.getByTestId("events");
     expect(log.textContent).toContain("Truco");
     expect(within(log).getByRole("img", { name: "P1" })).toBeTruthy();
+    await fireEvent.mouseLeave(screen.getByTestId("moves"));
+    expect(screen.queryByTestId("events")).toBeNull();
     expect(screen.getByRole("status").textContent).toContain("Ganaron Los Teros");
   });
 
@@ -174,8 +198,9 @@ describe("GameTable", () => {
     expect(onLook).toHaveBeenLastCalledWith(3);
     expect(avatar(3)).toBe(avatarSrc(characterFor(3), "sena_02"));
     expect(avatar(5)).toBe(avatarSrc(characterFor(5)));
-    // Seats on the viewer's own side are there, but out of focus: never a seña to read.
-    expect(screen.getByTestId("badge-1").dataset.look).toBe("blur");
+    // Everyone but the player in focus and the viewer is dimmed alike, on either side.
+    expect(screen.getByTestId("badge-1").dataset.look).toBe("dim");
+    expect(screen.getByTestId("badge-5").dataset.look).toBe("dim");
     expect(screen.getByTestId("badge-0").dataset.look).toBe("focus");
     expect(avatar(1)).toBe(avatarSrc(characterFor(1)));
   });
@@ -200,19 +225,57 @@ describe("GameTable", () => {
     ]);
   });
 
+  it("stacks cards whose position plus number would collide (3 then 2 of a suit)", () => {
+    // The crash of 2026-11-08: keys built as i + number + suit made both "3basto".
+    const seats = makeView().seats.map((s) =>
+      s.seat === 4
+        ? {
+            ...s,
+            played: [
+              { number: 3, suit: "basto" },
+              { number: 2, suit: "basto" },
+            ],
+          }
+        : s,
+    );
+    setup(makeView({ seats }));
+    const stack = screen.getByTestId("stack-4");
+    expect(stack.querySelectorAll("img")).toHaveLength(2);
+  });
+
+  it("shows a bot thinking before its move, and nothing of the move yet", () => {
+    setup(makeView(), {
+      busy: true,
+      thinking: true,
+      beat: { id: 7, seat: 3, kind: "truco", ms: 1500, think: 850 },
+    });
+    expect(screen.getByLabelText("pensando")).toBeTruthy();
+    expect(screen.queryByText("¡Truco!")).toBeNull();
+    expect(screen.getByTestId("prompt").textContent).toContain("Juega P3");
+  });
+
   it("says a canto out loud and blocks moves while beats play", () => {
     setup(makeView(), {
       busy: true,
       beat: { id: 1, seat: 3, kind: "truco", ms: 1500, think: 850 },
     });
-    // by the speaker and, as a loud canto, across the whole table
-    expect(screen.getAllByText("¡Truco!")).toHaveLength(2);
-    expect(screen.getByLabelText("pensando")).toBeTruthy(); // a bot thinks first
+    // by the speaker only: no banner across the table
+    expect(screen.getAllByText("¡Truco!")).toHaveLength(1);
+    expect(screen.queryByLabelText("pensando")).toBeNull(); // done thinking
     expect(screen.getByTestId("prompt").textContent).toContain("Juega P3");
     expect(screen.queryByRole("button", { name: "Quiero" })).toBeNull();
     expect(screen.getByRole("button", { name: "1 de espadas" }).hasAttribute("disabled")).toBe(
       true,
     );
+  });
+
+  it("sweeps the last mano's cards back to the mazo as a new mano is dealt", () => {
+    setup(makeView(), {
+      busy: true,
+      swept: [2, 4],
+      beat: { id: 8, seat: null, kind: "reparto", number: 2, ms: 2400, think: 0 },
+    });
+    expect(screen.getAllByTestId("sweep")).toHaveLength(2);
   });
 
   it("flies the card being played onto its stack", () => {
@@ -245,8 +308,11 @@ describe("GameTable", () => {
     const hint = screen.getByTestId("prompt");
     expect(hint.dataset.tone).toBe("answer");
     expect(hint.textContent).toContain("P1 cantó Truco");
-    expect(screen.getByTestId("status-truco").textContent).toContain("Truco");
-    expect(screen.getByTestId("status-envido").textContent).toContain("cantado");
+    // The scoreboard marks how the truco and the envido stand, and the rondas won.
+    expect(screen.getByTestId("marker-truco").dataset.state).toBe("sung");
+    expect(screen.getByTestId("marker-envido").dataset.state).toBe("sung");
+    const teros = screen.getByRole("group", { name: "Los Teros" });
+    expect(teros.querySelectorAll('[data-ronda="won"]')).toHaveLength(1);
     // answers come first and stand out
     expect(
       within(screen.getByRole("group", { name: "Responder" })).getByRole("button", {
@@ -264,7 +330,7 @@ describe("GameTable", () => {
     expect(screen.getAllByText("Me voy al mazo").length).toBeGreaterThan(0);
   });
 
-  it("announces who won the ronda and lights up the winning card", () => {
+  it("lights up the card that won the ronda, with no banner", () => {
     const seats = makeView().seats.map((s) =>
       s.seat === 5 ? { ...s, played: [{ number: 1, suit: "espada" }] } : s,
     );
@@ -272,16 +338,83 @@ describe("GameTable", () => {
       busy: true,
       beat: { id: 4, seat: 5, kind: "ronda", number: 1, ms: 1600, think: 0 },
     });
-    expect(screen.getByText("Ronda 1: gana P5")).toBeTruthy();
+    expect(screen.queryByText("Ronda 1: gana P5")).toBeNull();
     expect(screen.getByTestId("stack-5").querySelector(".winner")).not.toBeNull();
   });
 
-  it("conjugates for the viewer when they win the ronda", () => {
-    setup(makeView(), {
-      busy: true,
-      beat: { id: 5, seat: 0, kind: "ronda", number: 2, ms: 1600, think: 0 },
+  it("shows every viewer what the envido is worth before it is answered", () => {
+    // a spectator too: not only those who answer
+    setup(
+      makeView({
+        me: null,
+        actions: [],
+        envido_calls: ["envido", "real_envido"],
+        pending: [{ family: "envido", chanter: 1, in_turn: true, irregular: false }],
+        envido_stakes: { quiero: [5, 5], no_quiero: 2, team: 1 },
+      }),
+    );
+    const stakes = screen.getByTestId("envido-stakes").textContent;
+    expect(stakes).toMatch(/Quiero.*\+5/);
+    expect(stakes).toMatch(/No quiero.*\+2/);
+  });
+
+  it("announces the envido winner with the numbers said, in the log too", async () => {
+    const envido = { calls: ["envido"], accepted: true, team: 1, points: 2, winner_seat: 3 };
+    const result = {
+      seat: 3,
+      kind: "envido_resuelto",
+      card: null,
+      number: 30,
+      points: [0, 2],
+      upheld: null,
+    };
+    setup(
+      makeView({ mano: 0, envido: { ...envido, tantos: { 0: 27, 3: 30 } }, events: [result] }),
+      {
+        busy: true,
+        beat: { id: 5, ...result, ms: 1600, think: 0 },
+      },
+    );
+    const panel = screen.getByTestId("envido-panel");
+    expect(panel.dataset.kind).toBe("result");
+    expect(panel.textContent).toMatch(/Envido para P3.*\+2/);
+    expect(panel.querySelector("[data-best]")?.textContent).toContain("30");
+    await fireEvent.mouseEnter(screen.getByTestId("moves"));
+    const row = screen.getByTestId("events").querySelector('[data-kind="envido_resuelto"]');
+    expect(row?.textContent).toMatch(/Envido.*30.*\+2/);
+  });
+
+  it("logs rondas, envidos and the end of a mano in their own style", async () => {
+    const ev = (kind: string, extra = {}) => ({
+      seat: null,
+      kind,
+      card: null,
+      number: null,
+      points: null,
+      upheld: null,
+      ...extra,
     });
-    expect(screen.getByText("Ronda 2: ganaste vos")).toBeTruthy();
+    setup(
+      makeView({
+        events: [
+          ev("truco", { seat: 1 }),
+          ev("ronda", { seat: 0, number: 2 }),
+          ev("envido_resuelto", { seat: 3, points: [0, 3] }),
+          ev("fin_mano", { points: [1, 3] }),
+        ],
+      }),
+    );
+    await fireEvent.mouseEnter(screen.getByTestId("moves"));
+    const log = screen.getByTestId("events");
+    const row = (kind: string) => log.querySelector(`[data-kind="${kind}"]`)!;
+    // the viewer gets their own conjugation, in their team's colour
+    expect(row("ronda").textContent).toContain("Ronda 2: ganaste vos");
+    expect(row("ronda").className).toContain("indigo");
+    expect(row("envido_resuelto").textContent).toContain("+3");
+    expect(row("fin_mano").textContent).toMatch(/Fin de la mano.*\+1.*\+3/);
+    expect(row("truco").textContent).toContain("¡Truco!");
+    // newest first
+    expect(log.firstElementChild?.getAttribute("data-kind")).toBe("fin_mano");
   });
 });
 
@@ -319,39 +452,105 @@ describe("GameTable, more", () => {
         actions: [action("jugar", { card: { number: 4, suit: "oro" } }), action("truco")],
       }),
     );
-    await fireEvent.keyDown(window, { code: "KeyS" }); // the second card in hand
+    await fireEvent.keyDown(window, { code: "KeyD" }); // the second card in hand
     expect(onAct).toHaveBeenLastCalledWith(action("jugar", { card: { number: 4, suit: "oro" } }));
-    await fireEvent.keyDown(window, { code: "KeyT" });
+    await fireEvent.keyDown(window, { code: "KeyR" });
     expect(onAct).toHaveBeenLastCalledWith(action("truco"));
   });
 });
 
 describe("GameTable, keys and help", () => {
-  afterEach(() => updateProfile({ keys: "mnemonic", customKeys: {} }));
+  afterEach(() => updateProfile({ keys: "qwerty", customKeys: {} }));
 
-  it("follows the key layout chosen in the settings", async () => {
-    updateProfile({ keys: "rows" });
+  it("follows the custom keys chosen in the settings", async () => {
+    updateProfile({ keys: "custom", customKeys: { quiero: "KeyJ", card1: "KeyK" } });
     const { onAct } = setup(makeView());
-    await fireEvent.keyDown(window, { code: "KeyQ" });
+    await fireEvent.keyDown(window, { code: "KeyJ" });
     expect(onAct).toHaveBeenLastCalledWith(action("quiero"));
-    await fireEvent.keyDown(window, { code: "Digit1" }); // first card, by rows
+    await fireEvent.keyDown(window, { code: "KeyK" }); // the first card
     expect(onAct).toHaveBeenLastCalledWith(
       action("jugar", { card: { number: 1, suit: "espada" } }),
     );
     expect(screen.getByRole("button", { name: "Quiero" }).getAttribute("aria-keyshortcuts")).toBe(
-      "Q",
+      "J",
     );
   });
 
-  it("opens how to play from the gear, with the señas by meaning", async () => {
+  it("opens how to play from the menu, with the señas by meaning", async () => {
     setup(makeView());
-    await fireEvent.click(screen.getByRole("button", { name: "Cómo jugar y teclas" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Cómo jugar" }));
     const senas = screen.getByTestId("howto-senas");
     expect(within(senas).getByText("Ancho de espadas")).toBeTruthy();
     expect(within(senas).getByText("Fruncir la nariz")).toBeTruthy();
     await fireEvent.click(screen.getByRole("tab", { name: "Teclas" }));
-    expect(screen.getByRole("radio", { name: /Mnemotécnica/ }).getAttribute("aria-checked")).toBe(
+    expect(screen.getByRole("radio", { name: /Cómoda/ }).getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("fills the window; Escape steps out and the corner button goes back", async () => {
+    setup(makeView());
+    const scene = screen.getByTestId("scene");
+    expect(scene.dataset.immersive).toBe("true");
+    await fireEvent.keyDown(window, { code: "Escape" });
+    expect(scene.dataset.immersive).toBe("false");
+    // Leaving says how to come back.
+    expect(screen.getByTestId("fullscreen-hint").textContent).toContain(
+      "volver a pantalla completa",
+    );
+    const button = screen.getByRole("button", { name: "Pantalla completa" });
+    expect(button.getAttribute("aria-keyshortcuts")).toBe("F11");
+    await fireEvent.click(button);
+    expect(scene.dataset.immersive).toBe("true");
+    expect(screen.getByTestId("fullscreen-hint").textContent).toContain(
+      "salir de pantalla completa",
+    );
+  });
+
+  it("toggles full screen with F11, like the button", async () => {
+    setup(makeView());
+    const scene = screen.getByTestId("scene");
+    await fireEvent.keyDown(window, { code: "F11" });
+    expect(scene.dataset.immersive).toBe("false");
+    await fireEvent.keyDown(window, { code: "F11" });
+    expect(scene.dataset.immersive).toBe("true");
+  });
+
+  it("shows the keys in use while Tab is held", async () => {
+    updateProfile({ keys: "custom", customKeys: { quiero: "KeyJ" } });
+    setup(makeView());
+    expect(screen.queryByTestId("keymap")).toBeNull();
+    await fireEvent.keyDown(window, { code: "Tab" });
+    const map = screen.getByTestId("keymap");
+    const row = within(map).getByText("Quiero").closest("li")!;
+    expect(row.textContent).toContain("J");
+    expect(within(map).queryByText(/Señas/)).toBeNull(); // strict: no señas keys
+    await fireEvent.keyUp(window, { code: "Tab" });
+    expect(screen.queryByTestId("keymap")).toBeNull();
+  });
+
+  it("opens the settings over the table, without bots", async () => {
+    setup(makeView());
+    await fireEvent.click(screen.getByRole("button", { name: "Ajustes" }));
+    const dialog = screen.getByRole("dialog", { name: "Ajustes" });
+    expect(within(dialog).getByRole("tab", { name: "Sonido" }).getAttribute("aria-selected")).toBe(
       "true",
     );
+    expect(within(dialog).queryByRole("tab", { name: "Bots" })).toBeNull();
+    expect(screen.getByTestId("scene")).toBeTruthy(); // the game is still there
+    await fireEvent.keyDown(window, { code: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Ajustes" })).toBeNull();
+  });
+
+  it("says nothing when it is the viewer's turn to play: the cards light up instead", () => {
+    setup(makeView({ phase: "playing" }));
+    expect(screen.queryByTestId("prompt")).toBeNull();
+    expect(screen.getByRole("button", { name: "1 de espadas" }).className).toContain("playable");
+  });
+
+  it("shows no end-of-mano banner: the points go on the scoreboard", () => {
+    setup(makeView(), {
+      busy: true,
+      beat: { id: 6, seat: null, kind: "fin_mano", points: [0, 3], ms: 1600, think: 0 },
+    });
+    expect(screen.queryByText(/Fin de la mano/)).toBeNull();
   });
 });

@@ -128,7 +128,7 @@ export function installGlobalHandlers(target: Window = window) {
   target.addEventListener("error", (e) => {
     log.error("ui.error", {
       message: e.message,
-      source: e.filename,
+      file: e.filename,
       line: e.lineno,
       stack: e.error instanceof Error ? e.error.stack : undefined,
     });

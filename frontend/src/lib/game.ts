@@ -55,7 +55,7 @@ export function besides(viewer: number): number[] {
 }
 
 /** How long the table waits before dealing the next mano (ms). */
-export const DEAL_WAIT_MS = { strict: 3000, interactive: 6000, cut: 8000, humanCutter: 10000 };
+export const DEAL_WAIT_MS = { strict: 2000, interactive: 2000, cut: 8000, humanCutter: 10000 };
 
 /**
  * The next deal, once a mano is over: who cuts and how long this device waits. The cut is made
@@ -63,8 +63,7 @@ export const DEAL_WAIT_MS = { strict: 3000, interactive: 6000, cut: 8000, humanC
  * the (random) deal: it is the moment the cutter's device asks for it.
  * - The cutter is on this device: show "Cortar"; cut by itself after `cut` ms.
  * - The cutter is a human elsewhere: give them time, then deal anyway (`humanCutter`).
- * - The cutter is a bot: deal after a pause to read the result (longer in interactive mode,
- *   to leave time for reclamos).
+ * - The cutter is a bot: deal after a short pause to read the result.
  */
 export function nextDeal(
   view: GameView,
@@ -114,10 +113,15 @@ export function fanWidth(n: number, open: boolean): number {
   return n ? 1 + (n - 1) * (open ? 0.7 : 0.3) : 0;
 }
 
-/** A score as fósforos: six squares of five (three for malas, three for buenas, 1.3). */
-export function tally(points: number): number[] {
-  const p = Math.max(0, Math.min(30, points));
-  return Array.from({ length: 6 }, (_, i) => Math.max(0, Math.min(5, p - i * 5)));
+/**
+ * A score as fósforos: squares of five, enough for the target (a 30 partido: six, three for
+ * malas and three for buenas, 1.3).
+ */
+export function tally(points: number, target = 30): number[] {
+  const p = Math.max(0, Math.min(target, points));
+  return Array.from({ length: Math.ceil(target / 5) }, (_, i) =>
+    Math.max(0, Math.min(5, p - i * 5)),
+  );
 }
 
 /** Team names to draw from (the backend draws from the same kind of list). */
@@ -245,7 +249,13 @@ export interface TableStatus {
   /** One entry per ronda of the current mano or duelo: the winning team, "parda", or null if
    * still being played. */
   rondas: (number | "parda" | null)[];
-  envido: { label: string; state: "sung" | "accepted" | "rejected"; points?: number } | null;
+  envido: {
+    label: string;
+    state: "sung" | "accepted" | "rejected";
+    points?: number;
+    /** The winning tanto, as said at the table. */
+    tanto?: number | null;
+  } | null;
   truco: { label: string; state: "sung" | "accepted" } | null;
 }
 
@@ -263,6 +273,10 @@ export function status(view: GameView): TableStatus {
           label,
           state: view.envido.accepted ? "accepted" : "rejected",
           points: view.envido.points,
+          tanto:
+            view.envido.winner_seat != null
+              ? (view.envido.tantos[view.envido.winner_seat] ?? null)
+              : null,
         }
       : { label, state: "sung" };
   }
@@ -297,4 +311,66 @@ export function saveToken(gameId: string, seat: number, token: string): void {
   } catch {
     // Storage unavailable: the token lives only in this page.
   }
+}
+
+/** What the table knows of the envido right now, for everyone (players and spectators). */
+export type EnvidoBoard = {
+  label: string;
+  /** Each number said in turn from mano (null: son buenas), the best one marked. */
+  said: { seat: number; number: number | null; best: boolean }[];
+} & (
+  | { kind: "stakes"; chanter: number | null; quiero: number[]; noQuiero: number }
+  | { kind: "declaring"; next: number | null }
+  | { kind: "result"; winner: number | null; team: number; points: number }
+);
+
+/**
+ * The envido panel: while a canto waits, what quiero and no quiero are worth (one number, or
+ * one per team when they differ, as a falta can); while declaring, the numbers so far (11.4);
+ * while its result is announced, who won it and with what. Null when there is nothing to tell.
+ */
+export function envidoBoard(view: GameView, announcing = false): EnvidoBoard | null {
+  const calls = view.envido?.calls ?? view.envido_calls;
+  const label = calls.map((c) => ACTION_LABELS[c as ActionKind] ?? c).join(" + ");
+  const fromMano = (seat: number) => (seat - (view.mano ?? 0) + 6) % 6;
+  const said = (numbers: Record<string, number | null>) => {
+    const rows = Object.entries(numbers)
+      .map(([seat, number]) => ({ seat: Number(seat), number }))
+      .sort((a, b) => fromMano(a.seat) - fromMano(b.seat));
+    // The first highest number wins: a tie goes to whoever is closer to mano (11.6).
+    let best: number | null = null;
+    for (const r of rows) {
+      if (r.number !== null && (best === null || r.number > (rows[best].number ?? -1)))
+        best = rows.indexOf(r);
+    }
+    return rows.map((r, i) => ({ ...r, best: i === best }));
+  };
+  const stakes = view.envido_stakes;
+  if (stakes) {
+    const [a, b] = stakes.quiero;
+    const chanter = view.pending.find((p) => p.family === "envido")?.chanter ?? null;
+    return {
+      kind: "stakes",
+      label,
+      said: [],
+      chanter,
+      quiero: a === b ? [a] : stakes.quiero,
+      noQuiero: stakes.no_quiero,
+    };
+  }
+  if (view.phase === "declaring") {
+    return { kind: "declaring", label, said: said(view.declarations), next: view.to_act ?? null };
+  }
+  if (announcing && view.envido) {
+    const e = view.envido;
+    return {
+      kind: "result",
+      label,
+      said: said(e.tantos),
+      winner: e.winner_seat ?? null,
+      team: e.team,
+      points: e.points,
+    };
+  }
+  return null;
 }

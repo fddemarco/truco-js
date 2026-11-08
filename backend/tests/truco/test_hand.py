@@ -1,6 +1,7 @@
 import pytest
 
 from app.truco.cards import Card, Suit
+from app.truco.envido import said_in_order
 from app.truco.hand import Action, ActionKind, Contest, IllegalAction, PicaPicaHand
 from app.truco.table import order_from
 
@@ -278,3 +279,33 @@ def test_pica_pica_stops_when_a_team_reaches_30():
     act(p, K.MAZO)  # seat 1 leaves the second duelo, team 0 reaches 30
     assert p.finished and p.match_point
     assert len(p.duels) == 2
+
+
+# --- what the table hears of an envido, and what it is worth (both modes use the same) ---
+
+
+def test_said_in_order_only_says_what_beats_the_best_so_far():
+    # 11.4/11.5/11.6: mano declares; rivals declare only to beat it, else son buenas (a tie
+    # loses to mano); teammates of the best stay silent.
+    tantos = {0: 4, 1: 31, 2: 24, 3: 31, 4: 25, 5: 30}
+    assert said_in_order(list(range(6)), tantos) == {0: 4, 1: 31, 2: None, 4: None}
+    assert said_in_order([0, 1], {0: 27, 1: 27}) == {0: 27, 1: None}
+
+
+def test_envido_stakes_while_the_canto_waits():
+    # Anexo B.2: envido querido = 2, no querido = 1 to the chanter's team.
+    h = redonda()
+    assert h.envido_stakes() is None
+    act(h, K.ENVIDO)  # seat 0, team 0
+    assert h.envido_stakes() == ((2, 2), 1, 0)
+    act(h, K.ENVIDO)  # seat 1 raises: envido envido
+    assert h.envido_stakes() == ((4, 4), 2, 1)
+    act(h, K.QUIERO)
+    assert h.envido_stakes() is None
+
+
+def test_falta_envido_stakes_depend_on_who_wins_it():
+    # Anexo B.3: both in malas, the falta is worth what the winner lacks.
+    h = redonda(scores=(3, 10))
+    act(h, K.FALTA_ENVIDO)
+    assert h.envido_stakes() == ((27, 20), 1, 0)

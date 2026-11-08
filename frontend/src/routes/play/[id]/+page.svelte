@@ -1,21 +1,14 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import {
-    applyBeats,
-    BeatQueue,
-    beats,
-    isNewer,
-    newEvents,
-    rewind,
-    type Beat,
-  } from "$lib/animation";
+  import { BeatQueue, isNewer, stepBeats, type Beat } from "$lib/animation";
+  import { goto } from "$app/navigation";
   import { page } from "$app/state";
   import { api, errorMessage, type GameAction, type GameView } from "$lib/api/client";
   import type { BodySpot, Sena } from "$lib/avatar/avatar";
   import GameTable from "$lib/components/GameTable.svelte";
   import { loadTokens, nextDeal, saveToken } from "$lib/game";
   import { t } from "$lib/i18n.svelte";
-  import { play, sfxFor, startMusic, stopMusic, syncMusicVolume } from "$lib/audio.svelte";
+  import { play, sfxFor } from "$lib/audio.svelte";
   import { log } from "$lib/log";
   import { profile } from "$lib/profile.svelte";
 
@@ -26,16 +19,18 @@
   const mySeats = $derived(Object.keys(tokens).map(Number).sort());
   let seat = $state<number | null>(null); // the seat this device is acting as
   let revealed = $state(true);
-  // `latest` is what the server sent; `view` is what the table shows. Moves since then play
-  // as beats (1-2 s for a bot) before the table catches up (see $lib/animation).
+  // `latest` is what the server sent; `view` is the table on screen. The server sends each move
+  // as a step with the table right after it; they play as beats (1-2 s for a bot) and the table
+  // shows each step's own view, then catches up with `latest` (see $lib/animation).
   let latest = $state.raw<GameView | null>(null);
-  let view = $state<GameView | null>(null);
+  let view = $state.raw<GameView | null>(null);
+  let lastStep = -1; // the newest step queued or shown
   let beat = $state<Beat | null>(null);
-  let landed = $state<Beat[]>([]);
-  let settled = $state(0);
+  let thinking = $state(false); // the beat's player is still thinking: its move isn't made yet
+  let swept = $state<number[]>([]); // on a deal, the seats whose cards go back to the mazo
   let look = $state<number | null>(null); // the player across the camera is on
   const queue = new BeatQueue(
-    (b, done) => {
+    (b) => {
       log.debug("beat.start", {
         game_id: gameId,
         beat: b.id,
@@ -43,29 +38,33 @@
         seat: b.seat,
         ms: b.ms,
         think: b.think,
-        done: done.length,
       });
       beat = b;
-      landed = [...done, b];
-      const sound = sfxFor(b.kind);
-      if (sound) setTimeout(() => beat?.id === b.id && play(sound), b.think);
-      // The move enters the log (and scores) once the player has finished thinking.
-      settled = done.length;
-      if (b.think) setTimeout(() => beat?.id === b.id && (settled = done.length + 1), b.think);
-      else settled = done.length + 1;
+      thinking = b.think > 0;
+      // While a bot thinks the table stays as it was; then the move is made.
+      if (thinking) setTimeout(() => beat?.id === b.id && land(b), b.think);
+      else land(b);
     },
     () => {
       log.debug("beat.idle", { game_id: gameId, version: latest?.version });
       beat = null;
-      landed = [];
+      thinking = false;
       if (latest) settle(latest);
     },
   );
+  function land(b: Beat) {
+    thinking = false;
+    // A new mano: the last one's cards leave the table as the new hands come in.
+    if (b.kind === "reparto")
+      swept = view?.seats.filter((s) => s.played.length).map((s) => s.seat) ?? [];
+    view = b.view;
+    const sound = sfxFor(b.kind);
+    if (sound) play(sound);
+  }
   const busy = $derived(beat !== null);
-  // While beats play, the table is the old view with the cards played so far landed on it
-  // (señas stay live).
+  // While beats play nothing can be done, and señas stay live.
   const display = $derived(
-    view && busy && latest ? { ...applyBeats(view, landed, settled), senas: latest.senas } : view,
+    view && busy && latest ? { ...view, senas: latest.senas, actions: [] } : view,
   );
   let offset = $state(0);
   let error = $state<string | null>(null);
@@ -90,35 +89,48 @@
         });
       return;
     }
-    const bots = new Set(next.seats.filter((s) => s.kind === "bot").map((s) => s.seat));
-    let fresh = latest ? newEvents(latest.events, next.events) : [];
-    if (!latest) {
-      // Arriving at the table: replay what happened since our last move (or the deal),
-      // instead of showing it all at once.
-      const back = rewind(next);
-      if (back.replay.length) {
-        view = back.view;
-        fresh = back.replay;
-      }
+    if (latest && next.me !== latest.me) {
+      // Another seat on this device: its own view, from now on.
+      queue.stop();
+      beat = null;
+      lastStep = next.step;
+      latest = next;
+      settle(next);
+      return;
     }
-    const moves = beats(fresh, bots);
+    const steps = next.steps.filter((st) => st.index > lastStep);
+    // Arriving at the table, the moves since our last one (or the deal) play from `base`.
+    if (!latest && next.base && steps.length) view = next.base;
+    const bots = new Set(next.seats.filter((s) => s.kind === "bot").map((s) => s.seat));
+    const moves = stepBeats(steps, bots);
     if (latest && next.version !== latest.version) {
       log.debug("game.view", {
         game_id: gameId,
         seat,
         version: next.version,
-        events: next.events.length,
-        new_events: fresh.length,
+        step: next.step,
+        new_steps: steps.length,
         beats: moves.length,
         busy: queue.busy,
       });
     }
+    lastStep = Math.max(lastStep, next.step);
     latest = next;
     if (moves.length) queue.push(moves);
     else if (!queue.busy) settle(next);
   }
 
-  function fail(err: unknown) {
+  // Games live in the server's memory: after a restart (or with a stale link) the game is gone,
+  // so go home instead of polling a 404 forever.
+  let gone = false;
+  function fail(err: unknown, status?: number) {
+    if (status === 404) {
+      if (gone) return;
+      gone = true;
+      log.warn("game.not_found", { game_id: gameId });
+      goto("/", { replaceState: true });
+      return;
+    }
     error = errorMessage(err);
     log.warn("game.error", { game_id: gameId, seat, message: error });
   }
@@ -136,33 +148,27 @@
     }
   }
 
+  /** The steps we have: none yet means arriving (the server picks what to replay). */
+  const since = () => (latest ? lastStep : null);
+
   async function refresh() {
     const res = await api.GET("/api/games/{game_id}", {
-      params: { path: { game_id: gameId }, query: { token: token ?? null, look } },
+      params: { path: { game_id: gameId }, query: { token: token ?? null, look, since: since() } },
     });
     if (res.data) {
       show(res.data);
-    } else fail(res.error);
+    } else fail(res.error, res.response.status);
   }
 
   onMount(() => {
     seat = mySeats[0] ?? null;
     refresh();
     const id = setInterval(refresh, POLL_MS);
-    // Browsers only allow sound after a gesture: the music starts with the first one.
-    const start = () => startMusic();
-    window.addEventListener("pointerdown", start, { once: true });
-    window.addEventListener("keydown", start, { once: true });
     return () => {
       clearInterval(id);
       queue.stop();
-      window.removeEventListener("pointerdown", start);
-      window.removeEventListener("keydown", start);
-      stopMusic();
     };
   });
-
-  $effect(syncMusicVolume);
 
   async function act(action: GameAction) {
     if (!token) return;
@@ -175,12 +181,12 @@
     });
     const res = await api.POST("/api/games/{game_id}/act", {
       params: { path: { game_id: gameId } },
-      body: { token, action, look },
+      body: { token, action, look, since: since() },
     });
     if (res.data) {
       error = null;
       show(res.data);
-    } else fail(res.error);
+    } else fail(res.error, res.response.status);
   }
 
   // --- between manos: shuffle, cut, deal (no button to press) -----------------------------
@@ -209,7 +215,6 @@
     if (cutting || !plan) return;
     const cutter = plan.cutter;
     cutting = true;
-    play("cut");
     log.info("game.cut", { game_id: gameId, seat: cutter });
     setTimeout(() => {
       cutting = false;
@@ -224,21 +229,29 @@
     log.info("game.deal", { game_id: gameId, seat: cutter });
     const res = await api.POST("/api/games/{game_id}/deal", {
       params: { path: { game_id: gameId } },
-      body: { token: from, look },
+      body: { token: from, look, since: since() },
     });
     if (res.data) show(res.data);
     // Online, another device may have dealt first: the next poll shows the new mano.
-    else if (res.response.status !== 400) fail(res.error);
+    else if (res.response.status !== 400) fail(res.error, res.response.status);
   }
 
   async function sena(s: Sena, spot: BodySpot, durationMs: number) {
     if (!token) return;
     const res = await api.POST("/api/games/{game_id}/sena", {
       params: { path: { game_id: gameId } },
-      body: { token, sena: s, spot, duration_ms: durationMs, target: null, look },
+      body: {
+        token,
+        sena: s,
+        spot,
+        duration_ms: durationMs,
+        target: null,
+        look,
+        since: since(),
+      },
     });
     if (res.data) show(res.data);
-    else fail(res.error);
+    else fail(res.error, res.response.status);
   }
 
   async function join(target: number) {
@@ -247,7 +260,7 @@
       body: { seat: target, name: joinName },
     });
     if (!res.data) {
-      fail(res.error);
+      fail(res.error, res.response.status);
       return;
     }
     saveToken(gameId, target, res.data.token);
@@ -263,7 +276,15 @@
   }
 </script>
 
-{#if error}<p class="mb-3 text-sm text-red-600" role="alert">{error}</p>{/if}
+<!-- Above the full-screen table too. -->
+{#if error}
+  <p
+    class="fixed top-3 left-1/2 z-[60] -translate-x-1/2 rounded-full bg-red-600 px-4 py-1.5 text-sm font-semibold text-white shadow-lg"
+    role="alert"
+  >
+    {error}
+  </p>
+{/if}
 
 {#if view}
   {#if !mySeats.length}
@@ -318,6 +339,8 @@
       viewer={seat ?? 0}
       {offset}
       {beat}
+      {thinking}
+      {swept}
       {busy}
       onAct={act}
       nextDeal={plan && dealAt

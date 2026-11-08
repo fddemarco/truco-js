@@ -8,9 +8,8 @@
     seat: SeatView;
     /** What to call this player ("Vos" for the viewer). */
     label: string;
-    /** focus: face to face. dim: across but not in focus. blur: on the viewer's own side,
-     * whose faces can't be seen from here. */
-    look: "focus" | "dim" | "blur";
+    /** focus: face to face (or the viewer). dim: anyone else, smaller and see-through. */
+    look: "focus" | "dim";
     size: "lg" | "md" | "sm";
     /** The viewer's team: a thicker ring. */
     mine: boolean;
@@ -125,11 +124,6 @@
   .seat[data-look="dim"] {
     transform: scale(0.88);
     opacity: 0.8;
-  }
-  /* The viewer's own side: there, but out of focus. */
-  .seat[data-look="blur"] .face {
-    filter: blur(2.5px) saturate(0.7);
-    opacity: 0.75;
   }
   .turn {
     box-shadow:

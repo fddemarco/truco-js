@@ -16,6 +16,8 @@ log = structlog.get_logger("frontend")
 
 MAX_FIELDS = 30
 MAX_VALUE = 2000
+# Keys the server sets on every record; client fields with these names are dropped.
+RESERVED = {"event", "level", "timestamp", "logger", "source", "session_id", "client_ts"}
 
 
 class ClientLogEntry(BaseModel):
@@ -45,8 +47,8 @@ class ClientLogBatch(BaseModel):
 def receive_logs(batch: ClientLogBatch) -> Response:
     for e in batch.entries:
         method = {"debug": log.debug, "info": log.info, "warn": log.warning, "error": log.error}
-        # Client fields can't overwrite the record's own keys.
-        fields = {k: v for k, v in e.fields.items() if k not in {"event", "level", "timestamp"}}
+        # Client fields can't overwrite the record's own keys (a clash would raise a TypeError).
+        fields = {k: v for k, v in e.fields.items() if k not in RESERVED}
         method[e.level](
             e.event, source="frontend", session_id=batch.session_id, client_ts=e.ts, **fields
         )

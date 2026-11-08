@@ -9,6 +9,11 @@ const view = {
   team_names: ["Los Pumas", "Los Teros"],
   hand_kind: "redonda",
   hand_number: 3,
+  results: [],
+  envido: null,
+  envido_calls: [],
+  truco_level: 0,
+  truco_accepted: 0,
   seats: Array.from({ length: 6 }, (_, i) => ({
     seat: i,
     team: i % 2,
@@ -29,5 +34,32 @@ describe("Scoreboard", () => {
     const teros = screen.getByRole("group", { name: "Los Teros" });
     expect(teros.querySelectorAll("img.fosforo")).toHaveLength(4);
     expect(within(teros).queryByText("Tu equipo")).toBeNull();
+  });
+
+  it("shows the points scored as +N by the score, then counts up to them", async () => {
+    const { rerender } = render(Scoreboard, { view, myTeam: 0, nameOf: (s: number) => `P${s}` });
+    expect(screen.queryByTestId("gain-1")).toBeNull();
+    await rerender({ view: { ...view, score: [13, 7] } as GameView });
+    expect(screen.getByTestId("gain-1").textContent).toBe("+3");
+    expect(screen.queryByTestId("gain-0")).toBeNull();
+  });
+
+  it("marks the envido and truco of the mano, from nothing to accepted or not", () => {
+    render(Scoreboard, {
+      view: {
+        ...view,
+        results: [],
+        envido: { calls: ["envido"], accepted: false, points: 1 },
+        envido_calls: ["envido"],
+        truco_level: 2,
+        truco_accepted: 2,
+      } as unknown as GameView,
+      myTeam: 0,
+      nameOf: (s: number) => `P${s}`,
+    });
+    expect(screen.getByTestId("marker-envido").dataset.state).toBe("rejected");
+    const truco = screen.getByTestId("marker-truco");
+    expect(truco.dataset.state).toBe("accepted");
+    expect(truco.textContent).toContain("RT");
   });
 });

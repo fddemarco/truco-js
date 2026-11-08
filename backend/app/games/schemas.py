@@ -8,6 +8,7 @@ from app.games.characters import Character
 from app.truco.config import RuleMode
 from app.truco.hand import ActionKind, Phase
 from app.truco.match import MatchPhase
+from app.truco.scoring import DEFAULT_TARGET, MAX_CHAIN_POINTS, MAX_TARGET, MIN_TARGET
 from app.truco.signals import BodySpot, Sena
 
 READ = ConfigDict(json_schema_serialization_defaults_required=True)
@@ -24,8 +25,45 @@ class SeatSetup(BaseModel):
 TeamName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=24)]
 
 
+class ChainSetup(BaseModel):
+    """Points for one canto chain, e.g. ["envido", "real_envido"]. None: the default."""
+
+    chain: list[str] = Field(min_length=1, max_length=4)
+    quiero: int | None = Field(None, ge=0, le=MAX_CHAIN_POINTS)
+    no_quiero: int | None = Field(None, ge=0, le=MAX_CHAIN_POINTS)
+
+
+class ScoringSetup(BaseModel):
+    """Partido length and canto points; anything left out plays as the reglamento."""
+
+    target: int = Field(DEFAULT_TARGET, ge=MIN_TARGET, le=MAX_TARGET)
+    chains: list[ChainSetup] = Field([], max_length=32)
+
+
+class ChainInfo(BaseModel):
+    """A canto chain that can be configured, with the reglamento's points."""
+
+    model_config = READ
+
+    family: Literal["envido", "truco"]
+    chain: list[str]
+    quiero: int | None  # None: falta envido (what the leader lacks)
+    no_quiero: int
+
+
+class ScoringInfo(BaseModel):
+    model_config = READ
+
+    target: int
+    min_target: int
+    max_target: int
+    max_points: int
+    chains: list[ChainInfo]
+
+
 class GameCreate(BaseModel):
     mode: RuleMode = RuleMode.STRICT
+    scoring: ScoringSetup | None = None  # default: the reglamento
     seats: list[SeatSetup] = Field(min_length=6, max_length=6)
     # Team 0, team 1. Default: drawn from a list.
     team_names: list[TeamName] | None = Field(None, min_length=2, max_length=2)
@@ -62,6 +100,7 @@ class ActionModel(BaseModel):
 class TokenRequest(BaseModel):
     token: str
     look: int | None = Field(None, ge=0, le=5)  # the seat the viewer's camera is on
+    since: int | None = None  # the last step the client has (see GameView.steps)
 
 
 class ActRequest(TokenRequest):
@@ -117,6 +156,16 @@ class EnvidoView(BaseModel):
     tantos: dict[int, int | None] = {}
 
 
+class EnvidoStakesView(BaseModel):
+    """An envido canto waiting for an answer: what each answer is worth (Anexo B.2/B.3)."""
+
+    model_config = READ
+
+    quiero: list[int]  # points if quiero and team 0 / team 1 wins (they differ for a falta)
+    no_quiero: int  # points to the chanter's team
+    team: int  # the chanter's team
+
+
 class SenaView(BaseModel):
     model_config = READ
 
@@ -162,6 +211,8 @@ class GameView(BaseModel):
     seats: list[SeatView]
     team_names: list[str]
     score: list[int]
+    target: int = 30  # points to win the partido
+    malas_max: int = 15  # the last point of malas
     hand_number: int
     hand_kind: str | None = None
     dealer: int
@@ -177,6 +228,7 @@ class GameView(BaseModel):
     truco_level: int = 0
     truco_accepted: int = 0
     envido: EnvidoView | None = None
+    envido_stakes: EnvidoStakesView | None = None
     declarations: dict[int, int | None] = {}
     can_deal: bool = False
     result: ResultView | None = None
@@ -185,5 +237,26 @@ class GameView(BaseModel):
     # Private to the viewer.
     me: int | None = None
     my_cards: list[CardModel] = []
+    my_tanto: int | None = None  # the viewer's real tanto, from the three cards dealt (11.1)
     actions: list[ActionModel] = []
     senas_seen: list[SenaSeenView] = []
+    # Moves as steps, to show one at a time: the steps after the request's `since`, or on
+    # arrival (no `since`) the current mano's since the viewer's last move, from `base`.
+    step: int = -1  # the latest step
+    steps: list["StepView"] = []
+    base: "GameView | None" = None
+
+
+class StepView(BaseModel):
+    """One move (an action or a deal) and what it set off, with the table right after it as
+    the viewer saw it (without señas, which are live)."""
+
+    model_config = READ
+
+    index: int
+    seat: int | None = None  # who moved; None for a deal
+    events: list[EventView]
+    view: GameView
+
+
+GameView.model_rebuild()

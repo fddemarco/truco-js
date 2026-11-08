@@ -11,6 +11,8 @@
 from dataclasses import dataclass
 from enum import StrEnum
 
+from app.truco.scoring import REGLAMENTO, Scoring
+
 
 class RuleMode(StrEnum):
     STRICT = "strict"
@@ -22,6 +24,7 @@ class GameConfig:
     mode: RuleMode = RuleMode.STRICT
     sena_notice_p: float = 0.8  # strict: chance that each teammate notices a seña
     sena_leak_q: float = 0.15  # strict: chance that each rival detects it
+    scoring: Scoring = REGLAMENTO  # partido length and canto points (both modes)
 
     @property
     def interactive(self) -> bool:

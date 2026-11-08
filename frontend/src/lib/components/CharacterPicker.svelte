@@ -20,7 +20,7 @@
     <button
       type="button"
       class="flex flex-col items-center gap-1 rounded-xl border-2 p-1.5 text-xs font-semibold transition {selected
-        ? 'border-amber-400 bg-amber-50 shadow-md'
+        ? 'border-amber-400 bg-amber-400/15 shadow-md'
         : 'border-transparent hover:border-slate-300'} disabled:opacity-30"
       aria-pressed={selected}
       disabled={taken.includes(c) && !selected}
@@ -40,7 +40,7 @@
     <button
       type="button"
       class="col-span-3 rounded-xl border-2 p-2 text-xs font-semibold sm:col-span-6 {value === null
-        ? 'border-amber-400 bg-amber-50'
+        ? 'border-amber-400 bg-amber-400/15'
         : 'border-transparent hover:border-slate-300'}"
       aria-pressed={value === null}
       onclick={() => onChange(null)}

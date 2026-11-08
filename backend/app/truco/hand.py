@@ -30,15 +30,13 @@ from app.truco.envido import (
     VALID_DECLARATIONS,
     EnvidoCall,
     can_call,
-    envido_points,
     provable_tantos,
     tanto,
 )
 from app.truco.rounds import Play, hand_winner, round_winner
-from app.truco.score import TARGET
 from app.truco.signals import Sena, SenaEvent, SenaSeen
 from app.truco.table import duel_order, other, team_of
-from app.truco.truco import LADDER, TrucoCall, next_call, truco_points
+from app.truco.truco import LADDER, TrucoCall, next_call
 
 
 class ActionKind(StrEnum):
@@ -129,7 +127,8 @@ class Pending:
     in_turn: bool = True  # sung by the player in turn: blocks play until answered (13.2)
     irregular: bool = False  # retruco/vale cuatro out of sequence or without the right (12.3)
     envido_before: list[EnvidoCall] = field(default_factory=list)
-    truco_before: tuple[int, int, int | None] = (0, 0, None)  # level, accepted, holder
+    # level, accepted, holder, calls sung
+    truco_before: tuple[int, int, int | None, tuple[TrucoCall, ...]] = (0, 0, None, ())
 
 
 @dataclass
@@ -200,6 +199,7 @@ class Contest:
         self.truco_level = 0  # truco calls made
         self.truco_accepted = 0  # truco calls querido
         self.truco_holder: int | None = None  # team allowed to raise (12.1)
+        self.truco_calls: list[TrucoCall] = []  # the chain sung, for its points (scoring)
         self.points = [0, 0]
         self.winner: int | None = None  # team that won the truco part of the mano
         self.phase = Phase.PLAYING
@@ -312,7 +312,7 @@ class Contest:
             if pending.family == "envido":
                 self._resolve_envido(accepted=False, chanter=pending.chanter)
             else:
-                self._finish(team_of(pending.chanter))
+                self._finish(team_of(pending.chanter), rejected=True)
         elif kind in (ActionKind.MAZO, ActionKind.TAPAR):
             self._leave(seat, into_mazo=kind == ActionKind.MAZO)
         elif kind == ActionKind.NOS_VAMOS:
@@ -330,7 +330,7 @@ class Contest:
             self._claim(seat)
         elif kind == ActionKind.OBJETAR:
             pending = self._take_answerable()
-            self.truco_level, self.truco_accepted, self.truco_holder = pending.truco_before
+            self._restore_truco(pending.truco_before)
         elif kind == ActionKind.PERDON:
             assert self._undo is not None
             self._undo.proposed = True
@@ -570,7 +570,7 @@ class Contest:
             if pending.family == "envido":
                 self.envido_calls = list(pending.envido_before)
             else:
-                self.truco_level, self.truco_accepted, self.truco_holder = pending.truco_before
+                self._restore_truco(pending.truco_before)
 
     def _snapshot(self) -> tuple:
         return copy.deepcopy(
@@ -580,6 +580,7 @@ class Contest:
                 self.truco_level,
                 self.truco_accepted,
                 self.truco_holder,
+                self.truco_calls,
             )
         )
 
@@ -590,7 +591,15 @@ class Contest:
             self.truco_level,
             self.truco_accepted,
             self.truco_holder,
+            self.truco_calls,
         ) = copy.deepcopy(state)
+
+    def _restore_truco(self, before: tuple[int, int, int | None, tuple[TrucoCall, ...]]) -> None:
+        self.truco_level, self.truco_accepted, self.truco_holder, calls = before
+        self.truco_calls = list(calls)
+
+    def _truco_state(self) -> tuple[int, int, int | None, tuple[TrucoCall, ...]]:
+        return (self.truco_level, self.truco_accepted, self.truco_holder, tuple(self.truco_calls))
 
     # --- shared -----------------------------------------------------------------------
 
@@ -650,7 +659,7 @@ class Contest:
             self.truco_holder = team
             existing.chanter = seat
             existing.irregular = level != previous + 1
-            existing.truco_before = (previous, previous, team)
+            existing.truco_before = (previous, previous, team, tuple(self.truco_calls))
         else:
             without_right = self.truco_level > 0 and self.truco_holder != team
             in_turn = not self.config.interactive or seat == self.turn
@@ -660,13 +669,27 @@ class Contest:
                     seat,
                     in_turn,
                     irregular=level != self.truco_level + 1 or without_right,
-                    truco_before=(self.truco_level, self.truco_accepted, self.truco_holder),
+                    truco_before=self._truco_state(),
                 )
             )
         self.truco_level = level
+        self.truco_calls.append(LADDER[level - 1])
+
+    def envido_stakes(self) -> tuple[tuple[int, int], int, int] | None:
+        """While an envido canto waits for an answer: what quiero is worth if each team wins
+        it, what no quiero gives the chanter's team, and that team (Anexo B.2/B.3, 11.9)."""
+        pending = next((p for p in self.pending if p.family == "envido"), None)
+        if pending is None or not self.envido_calls:
+            return None
+        team = team_of(pending.chanter)
+        quiero = (
+            self._envido_value(accepted=True, team=0),
+            self._envido_value(accepted=True, team=1),
+        )
+        return quiero, self._envido_value(accepted=False, team=team), team
 
     def _envido_value(self, *, accepted: bool, team: int) -> int:
-        return envido_points(
+        return self.config.scoring.envido_points(
             self.envido_calls,
             accepted,
             pica_pica=self.pica_pica,
@@ -722,23 +745,31 @@ class Contest:
 
     def _fold(self, team: int) -> None:
         """A whole team left the mano: pending cantos count as rejected (8.5, 15.7)."""
+        truco_pending = self._has_pending("truco")
         while self.pending and not self.finished:
             pending = self.pending.pop()
             if pending.family == "envido" and team_of(pending.chanter) != team:
                 self._resolve_envido(accepted=False, chanter=pending.chanter)
         if not self.finished:
-            self._finish(other(team))
+            self._finish(other(team), rejected=truco_pending)
 
-    def _finish(self, team: int) -> None:
+    def _finish(self, team: int, *, rejected: bool = False) -> None:
+        """`rejected`: the last truco canto was not querido (scored as its chain's no quiero)."""
         self.winner = team
         self._enter(Phase.FINISHED)
-        self._award(team, truco_points(self.truco_accepted))
+        scoring = self.config.scoring
+        accepted = [c for c in self.truco_calls if LADDER.index(c) < self.truco_accepted]
+        if rejected and self.truco_calls:
+            points = scoring.truco_no_quiero(self.truco_calls, accepted)
+        else:
+            points = scoring.truco_quiero(accepted)
+        self._award(team, points)
 
     def _award(self, team: int, points: int) -> None:
         if self.forfeited_to is not None:
             team = self.forfeited_to
         self.points[team] += points
-        if self.live_scores()[team] >= TARGET:
+        if self.live_scores()[team] >= self.config.scoring.target:
             # The partido ends right away; pending cantos have no effect (11.10).
             self.match_point = True
             self._enter(Phase.FINISHED)
@@ -845,7 +876,7 @@ class PicaPicaHand:
             self._after_duel()
 
     def _after_duel(self) -> None:
-        if self.current.match_point or max(self.live_scores()) >= TARGET:
+        if self.current.match_point or max(self.live_scores()) >= self.config.scoring.target:
             # A team reached 30: the remaining duelos are not played (15.1).
             self.finished = self.match_point = True
         elif len(self.duels) == len(self.pairs):
@@ -854,7 +885,7 @@ class PicaPicaHand:
             self._start_next()
 
     def _after_claim(self) -> None:
-        if max(self.live_scores()) >= TARGET:
+        if max(self.live_scores()) >= self.config.scoring.target:
             self.finished = self.match_point = True
         elif not self.current.started:
             # The next duelo hasn't started: deal it again with the corrected score.

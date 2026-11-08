@@ -7,6 +7,9 @@
   import type { BotDraft } from "$lib/bots";
   import BotConfigurator from "./BotConfigurator.svelte";
 
+  /** Saved bots changed (saved or deleted): a new game's seats offer them. */
+  let { onChange }: { onChange?: () => void } = $props();
+
   let presets = $state<BotPreset[]>([]);
   let saved = $state<BotConfig[]>([]);
   let error = $state<string | null>(null);
@@ -34,6 +37,7 @@
         : await api.PUT("/api/bots/{bot_id}", { params: { path: { bot_id: id } }, body: bot });
     if (res.error) return errorMessage(res.error);
     await loadSaved();
+    onChange?.();
     editor = null;
     return null;
   }
@@ -43,6 +47,7 @@
     const res = await api.DELETE("/api/bots/{bot_id}", { params: { path: { bot_id: bot.id } } });
     if (res.error) error = errorMessage(res.error);
     await loadSaved();
+    onChange?.();
   }
 
   function duplicate(p: BotPreset) {

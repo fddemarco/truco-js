@@ -65,6 +65,19 @@ def test_frontend_logs_are_written_with_their_session(client):
     assert error["log_level"] == "error" and len(error["stack"]) <= 2000
 
 
+def test_frontend_fields_cannot_clash_with_record_keys(client):
+    # A ui.error carrying `source` used to 500 the whole batch and lose the stack.
+    fields = {"source": "app.js", "session_id": "x", "client_ts": "y", "logger": "z", "line": 7}
+    batch = {
+        "session_id": "s-1",
+        "entries": [{"ts": "t", "level": "error", "event": "ui.error", "fields": fields}],
+    }
+    with capture_logs() as logs:
+        assert client.post("/api/logs", json=batch).status_code == 204
+    [entry] = [e for e in logs if e.get("event") == "ui.error"]
+    assert entry["source"] == "frontend" and entry["session_id"] == "s-1" and entry["line"] == 7
+
+
 def test_frontend_log_batches_are_bounded(client):
     entry = {"ts": "t", "level": "info", "event": "x"}
     too_many = {"session_id": "s", "entries": [entry] * 101}

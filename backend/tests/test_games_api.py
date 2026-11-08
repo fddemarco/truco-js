@@ -1,4 +1,6 @@
 from app.bots.settings import BotSettings
+from app.truco.cards import Card, Suit
+from app.truco.envido import tanto
 
 BOT = {"kind": "bot", "bot_preset": "prolijo"}
 HUMAN = {"kind": "human"}
@@ -23,6 +25,12 @@ def join(client, game, seat, name="") -> str:
     res = client.post(f"/api/games/{game}/join", json={"seat": seat, "name": name})
     assert res.status_code == 200, res.text
     return res.json()["token"]
+
+
+def deal(client, game, token) -> dict:
+    res = client.post(f"/api/games/{game}/deal", json={"token": token})
+    assert res.status_code == 200, res.text
+    return res.json()
 
 
 def view(client, game, token=None) -> dict:
@@ -98,7 +106,11 @@ def test_game_waits_for_every_human_seat(client):
     bad = client.post(f"/api/games/{game}/act", json={"token": first, "action": {"kind": "quiero"}})
     assert bad.status_code == 400
     second = join(client, game, 1, "Beto")
-    assert view(client, game, first)["started"]
+    started = view(client, game, first)
+    # The table shuffles, cuts and deals the first mano like every other one.
+    assert started["started"] and started["can_deal"]
+    assert started["my_cards"] == [] and started["events"] == []
+    deal(client, game, second)
     # Each token only sees its own seat's cards.
     a, b = view(client, game, first), view(client, game, second)
     assert a["me"] == 0 and b["me"] == 1
@@ -204,7 +216,7 @@ def test_a_seat_only_sees_the_senas_of_the_player_across_it_looks_at(client):
     # its camera is on. Seat 0 (side 0) looks across at 5, 4 or 3; seat 1 is beside it.
     game = create(client, [HUMAN] * 3 + [BOT, HUMAN, BOT], mode="interactive")
     tokens = {s: join(client, game, s) for s in (0, 1, 2, 4)}
-    first = view(client, game, tokens[0])
+    first = deal(client, game, tokens[0])
     assert first["started"] and first["hand_kind"] != "pica_pica"  # every seat may signal
     sena = {"sena": "sena_05", "spot": "labio_inferior", "duration_ms": 3000}
 
@@ -272,7 +284,8 @@ def test_view_carries_the_phase_of_the_mano_and_the_partido(client):
     assert view(client, game)["match_phase"] == "dealing"
     assert view(client, game)["phase"] is None
     tokens = [join(client, game, s) for s in range(6)]
-    v = view(client, game)
+    assert view(client, game)["match_phase"] == "dealing"  # until the table deals
+    v = deal(client, game, tokens[0])
     assert (v["match_phase"], v["phase"]) == ("in_hand", "playing")
     seat = v["to_act"]
     res = client.post(
@@ -323,3 +336,131 @@ def test_view_names_the_mano_and_the_pie(client):
         assert v["mano"] == (v["dealer"] + 1) % 6 and v["pie"] == v["dealer"]
     else:
         assert {v["mano"], v["pie"]} == set(v["duel"])
+
+
+def test_each_move_is_a_step_with_the_table_as_the_viewer_saw_it(client):
+    # Bots play right after the deal, so one response carries several moves; each comes with
+    # the table right after it, so the client can show them one at a time.
+    game = create(client, [HUMAN] + [BOT] * 5)
+    token = join(client, game, 0)
+    start = view(client, game, token)["step"]
+    v = client.post(f"/api/games/{game}/deal", json={"token": token, "since": start}).json()
+    steps = v["steps"]
+    assert steps[0]["events"][0]["kind"] == "reparto" and steps[0]["seat"] is None
+    # The new hand is on the table from the deal on, not from the viewer's turn.
+    assert len(steps[0]["view"]["my_cards"]) == 3
+    assert steps[0]["view"]["seats"][0]["played"] == []
+    for before, after in zip(steps, steps[1:], strict=False):
+        assert after["index"] == before["index"] + 1
+    for s in steps[1:]:
+        assert s["seat"] != 0  # only bots moved
+        card = next((e["card"] for e in s["events"] if e["kind"] == "jugar"), None)
+        if card:
+            assert card in s["view"]["seats"][s["seat"]]["played"]
+    assert steps[-1]["index"] == v["step"]
+    # Asking again from the latest step: nothing new.
+    again = client.get(f"/api/games/{game}", params={"token": token, "since": v["step"]})
+    assert again.json()["steps"] == []
+
+
+def test_arriving_replays_the_mano_since_the_viewers_last_move(client):
+    game = create(client, [HUMAN] + [BOT] * 5)
+    token = join(client, game, 0)
+    v = my_turn(client, game, token)
+    arrived = view(client, game, token)  # no `since`: arriving at the table
+    replay = arrived["steps"]
+    if replay:  # bots played before our turn
+        assert replay[0]["events"][0]["kind"] == "reparto"
+        base = arrived["base"]  # the table waiting for this mano's deal
+        assert base["can_deal"] and base["hand_number"] == arrived["hand_number"] - 1
+    # After our own move, arriving again replays only what came after it.
+    res = client.post(f"/api/games/{game}/act", json={"token": token, "action": pick(v["actions"])})
+    assert res.status_code == 200
+    after = view(client, game, token)
+    assert all(s["seat"] != 0 for s in after["steps"])
+    if after["steps"]:
+        assert after["base"] is not None
+    # Spectators get steps too, without anyone's cards.
+    watched = client.get(f"/api/games/{game}", params={"since": -1}).json()["steps"]
+    assert watched and all(s["view"]["my_cards"] == [] for s in watched)
+
+
+# --- scoring: target and canto chains -----------------------------------------------------
+
+
+def test_scoring_info_lists_chains_with_the_reglamento_points(client):
+    info = client.get("/api/games/scoring").json()
+    assert info["target"] == 30
+    chains = {tuple(c["chain"]): c for c in info["chains"]}
+    assert chains[("envido", "real_envido")]["quiero"] == 5
+    assert chains[("envido", "real_envido")]["no_quiero"] == 2
+    assert chains[("falta_envido",)]["quiero"] is None  # what the leader lacks
+    assert chains[("truco", "retruco")]["family"] == "truco"
+
+
+def test_game_with_custom_scoring_shows_its_target(client):
+    body = {
+        "seats": [HUMAN] + [BOT] * 5,
+        "scoring": {"target": 18, "chains": [{"chain": ["truco"], "quiero": 3}]},
+    }
+    res = client.post("/api/games", json=body)
+    assert res.status_code == 201, res.text
+    v = view(client, res.json()["id"])
+    assert v["target"] == 18 and v["malas_max"] == 9
+
+
+def test_default_game_plays_to_30(client):
+    v = view(client, create(client, [HUMAN] + [BOT] * 5))
+    assert v["target"] == 30 and v["malas_max"] == 15
+
+
+def test_scoring_errors_are_422(client):
+    seats = [HUMAN] + [BOT] * 5
+    for scoring in (
+        {"target": 5},
+        {"chains": [{"chain": ["envido", "truco"], "quiero": 2}]},
+        {"chains": [{"chain": ["truco"], "quiero": 2}, {"chain": ["truco"], "no_quiero": 1}]},
+    ):
+        res = client.post("/api/games", json={"seats": seats, "scoring": scoring})
+        assert res.status_code == 422, scoring
+
+
+def test_view_tells_each_player_their_real_tanto(client):
+    # The tanto counts the three cards dealt (11.1), so the UI can offer it when declaring.
+    game = create(client, [HUMAN, BOT, BOT, BOT, BOT, BOT], mode="interactive")
+    token = join(client, game, 0)
+    v = my_turn(client, game, token)
+    cards = [Card(c["number"], Suit(c["suit"])) for c in v["my_cards"]]
+    assert v["my_tanto"] == tanto(cards)
+    assert view(client, game)["my_tanto"] is None  # spectators see no tanto
+
+
+def test_strict_envido_is_told_as_the_table_hears_it(client):
+    # Strict resolves the envido from the real tantos; the table hears it in turn (11.4,
+    # 11.5): declarations, then who won it with which tanto, for every viewer.
+    game = create(client, [HUMAN] + [BOT] * 5)
+    token = join(client, game, 0)
+    v = view(client, game, token)
+    seen_stakes = seen_result = False
+    for _ in range(3000):
+        if v["result"] or (seen_stakes and seen_result):
+            break
+        if v["envido_stakes"]:
+            stakes = v["envido_stakes"]
+            assert stakes["no_quiero"] >= 1 and min(stakes["quiero"]) >= 2
+            seen_stakes = True
+        events = v["events"]
+        for i, e in enumerate(events):
+            if e["kind"] == "envido_resuelto" and e["number"] is not None:
+                before = events[:i]
+                said = [b for b in before if b["kind"] in ("declarar", "son_buenas")]
+                assert any(b["seat"] == e["seat"] and b["number"] == e["number"] for b in said)
+                seen_result = True
+        if v["can_deal"]:
+            v = deal(client, game, token)
+            continue
+        v = client.post(
+            f"/api/games/{game}/act", json={"token": token, "action": pick(v["actions"])}
+        ).json()
+    assert seen_result, "no envido querido in a whole partido"
+    assert seen_stakes, "never asked to answer an envido"

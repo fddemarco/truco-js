@@ -20,6 +20,8 @@
 
   let { character, label, sena, spot, class: className = "" }: Props = $props();
 
+  // A width from the caller replaces the default one (Tailwind's order would keep w-20).
+  const size = $derived(/(^|\s)w-/.test(className) ? "" : "w-20");
   const id = $derived(typeof character === "number" ? characterFor(character) : character);
   const base = $derived(avatarSrc(id));
   const wanted = $derived(avatarSrc(id, sena, spot));
@@ -40,7 +42,7 @@
   }
 </script>
 
-<div role="img" aria-label={label} class="aspect-square w-20 {className}">
+<div role="img" aria-label={label} class="aspect-square {size} {className}">
   {#if failed}
     <div
       class="flex h-full w-full items-center justify-center rounded-full bg-slate-200 text-2xl font-bold text-slate-600"

@@ -1,24 +1,21 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
   import { page } from "$app/state";
-  import BotManager from "$lib/components/BotManager.svelte";
   import CharacterPicker from "$lib/components/CharacterPicker.svelte";
   import HowToPlay from "$lib/components/HowToPlay.svelte";
   import KeyBindings from "$lib/components/KeyBindings.svelte";
-  import { i18n, LOCALES, setLocale, t, type MessageKey } from "$lib/i18n.svelte";
+  import LanguageSettings from "$lib/components/LanguageSettings.svelte";
+  import SoundSettings from "$lib/components/SoundSettings.svelte";
+  import { t, type MessageKey } from "$lib/i18n.svelte";
   import { profile, updateProfile } from "$lib/profile.svelte";
 
-  const TABS = ["profile", "howto", "keys", "bots", "sound", "language"] as const;
+  // Bots are set up with a new game (play/, its Bots tab), never during one.
+  const TABS = ["profile", "howto", "keys", "sound", "language"] as const;
   type Tab = (typeof TABS)[number];
   const tab = $derived.by((): Tab => {
     const wanted = page.url.searchParams.get("tab");
     return TABS.find((id) => id === wanted) ?? "profile";
   });
-  const LANGUAGE_NAMES = { es: "Español", en: "English" };
-  const VOLUMES = [
-    ["musicVolume", "settings.music"],
-    ["sfxVolume", "settings.sfx"],
-  ] as const;
 </script>
 
 <section class="card space-y-5">
@@ -63,44 +60,9 @@
     <HowToPlay />
   {:else if tab === "keys"}
     <KeyBindings />
-  {:else if tab === "bots"}
-    <BotManager />
   {:else if tab === "sound"}
-    <div class="max-w-sm space-y-4">
-      {#each VOLUMES as [key, label] (key)}
-        <label class="block text-sm">
-          <span class="font-semibold">{t(label)}: {Math.round(profile[key] * 100)}%</span>
-          <input
-            class="mt-1 w-full"
-            type="range"
-            min="0"
-            max="1"
-            step="0.05"
-            value={profile[key]}
-            oninput={(e) => updateProfile({ [key]: Number(e.currentTarget.value) })}
-          />
-        </label>
-      {/each}
-      <label class="flex items-center gap-2 text-sm font-semibold">
-        <input
-          type="checkbox"
-          checked={profile.muted}
-          onchange={(e) => updateProfile({ muted: e.currentTarget.checked })}
-        />
-        {t("settings.mute")}
-      </label>
-    </div>
+    <SoundSettings />
   {:else}
-    <div class="flex gap-2" role="group" aria-label={t("lang.label")}>
-      {#each LOCALES as locale (locale)}
-        <button
-          class="btn {i18n.locale === locale ? 'btn-primary' : ''}"
-          aria-pressed={i18n.locale === locale}
-          onclick={() => setLocale(locale)}
-        >
-          {LANGUAGE_NAMES[locale]}
-        </button>
-      {/each}
-    </div>
+    <LanguageSettings />
   {/if}
 </section>

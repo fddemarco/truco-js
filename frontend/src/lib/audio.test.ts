@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { play, sfxFor } from "./audio.svelte";
+import { play, playlistFor, setPlaylist, sfxFor, startMusic, stopMusic } from "./audio.svelte";
 import { updateProfile } from "./profile.svelte";
 
 describe("audio", () => {
@@ -10,7 +10,7 @@ describe("audio", () => {
 
   it("gives moves their sound", () => {
     expect(sfxFor("jugar")).toBe("card");
-    expect(sfxFor("reparto")).toBe("deal");
+    expect(sfxFor("reparto")).toBeNull();
     expect(sfxFor("quiero")).toBeNull();
   });
 
@@ -34,5 +34,64 @@ describe("audio", () => {
     updateProfile({ muted: true });
     play("card");
     expect(made).toHaveLength(1);
+  });
+
+  it("plays the menus', the settings' or the table's music by page", () => {
+    expect(playlistFor("/")).toBe("menu");
+    expect(playlistFor("/play")).toBe("menu"); // setting up a game
+    expect(playlistFor("/rules/teams")).toBe("menu");
+    expect(playlistFor("/settings")).toBe("settings");
+    expect(playlistFor("/play/abc123")).toBe("game");
+  });
+
+  it("switches the playing music when the page changes playlist", () => {
+    const made: { src: string }[] = [];
+    vi.stubGlobal(
+      "Audio",
+      class {
+        volume = 1;
+        constructor(public src: string) {
+          made.push(this);
+        }
+        play() {
+          return Promise.resolve();
+        }
+        pause() {}
+        addEventListener() {}
+      },
+    );
+    setPlaylist("menu");
+    startMusic();
+    expect(made[0].src).toBe("/audio/menu-1.ogg");
+    setPlaylist("game");
+    expect(made[0].src).toBe("/audio/music-1.ogg"); // the same player, a new track
+    setPlaylist("game");
+    expect(made).toHaveLength(1);
+    stopMusic();
+  });
+
+  it("keeps trying to start the music until the browser allows it", async () => {
+    const made: { src: string }[] = [];
+    let allowed = false;
+    vi.stubGlobal(
+      "Audio",
+      class {
+        volume = 1;
+        constructor(public src: string) {
+          made.push(this);
+        }
+        play() {
+          return allowed ? Promise.resolve() : Promise.reject(new Error("NotAllowedError"));
+        }
+        pause() {}
+        addEventListener() {}
+      },
+    );
+    setPlaylist("menu");
+    expect(await startMusic()).toBe(false); // on load, before any gesture
+    allowed = true;
+    expect(await startMusic()).toBe(true); // the next gesture
+    expect(made).toHaveLength(1); // the same player both times
+    stopMusic();
   });
 });

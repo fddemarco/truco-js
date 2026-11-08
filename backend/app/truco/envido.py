@@ -1,11 +1,12 @@
 """Envido: tanto calculation, valid call sequences and points (cap. 11, Anexo B)."""
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from enum import StrEnum
 from itertools import combinations
 
 from app.truco.cards import Card
 from app.truco.score import MALAS_MAX, TARGET
+from app.truco.table import team_of
 
 PICA_PICA_FALTA_ENVIDO = 6
 
@@ -55,6 +56,32 @@ def provable_tantos(cards: Sequence[Card]) -> set[int]:
 
 
 VALID_DECLARATIONS = tuple(range(0, 8)) + tuple(range(20, 34))
+
+
+def said_in_order(order: Sequence[int], tantos: Mapping[int, int]) -> dict[int, int | None]:
+    """What each player would say at the table, in turn from mano (11.4, 11.5).
+
+    The first declares; a rival declares only to beat the best number so far, else says "son
+    buenas" (None; a tie loses to whoever is closer to mano, 11.6); teammates of the best stay
+    silent. Strict mode resolves the envido from the real tantos, and this is what the table
+    hears of it, so nobody learns a tanto that would not have been said.
+    """
+    said: dict[int, int | None] = {}
+    best: int | None = None
+    for seat in order:
+        if best is not None and team_of(seat) == team_of(best):
+            continue
+        if best is None or tantos[seat] > tantos[best]:
+            said[seat] = tantos[seat]
+            best = seat
+        else:
+            said[seat] = None
+    return said
+
+
+def reglamento_envido_points(calls: Sequence[EnvidoCall]) -> int:
+    """Envido and real envido querido, summed along the chain (Anexo B.2)."""
+    return sum(_VALUE[c] for c in calls)
 
 
 def can_call(calls: Sequence[EnvidoCall], call: EnvidoCall) -> bool:

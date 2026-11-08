@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { GameAction, GameEvent, GameView } from "$lib/api/client";
-  import { BANNERS, LEAVE, LOUD, type Beat } from "$lib/animation";
+  import { BANNERS, LEAVE, LOUD, SWEEP_MS, type Beat } from "$lib/animation";
+  import { play } from "$lib/audio.svelte";
   import type { BodySpot, Sena } from "$lib/avatar/avatar";
   import { cardName, type Suit } from "$lib/cards";
   import {
@@ -16,17 +17,18 @@
     tableSide,
   } from "$lib/game";
   import { t } from "$lib/i18n.svelte";
-  import { actionForKey, commandForCode, keyLabel, senaForCode } from "$lib/keys";
+  import { actionForKey, commandForCode, senaForCode } from "$lib/keys";
   import { bindings } from "$lib/profile.svelte";
   import ActionBar from "./ActionBar.svelte";
+  import EnvidoPanel from "./EnvidoPanel.svelte";
   import Hand from "./Hand.svelte";
-  import HelpDialog from "./HelpDialog.svelte";
+  import GameSettings, { type GameSettingsTab } from "./GameSettings.svelte";
+  import KeyMap from "./KeyMap.svelte";
   import Mazo from "./Mazo.svelte";
   import MoveLog from "./MoveLog.svelte";
   import PlayingCard from "./PlayingCard.svelte";
   import Scoreboard from "./Scoreboard.svelte";
   import SeatBadge from "./SeatBadge.svelte";
-  import TableStatus from "./TableStatus.svelte";
 
   interface Props {
     view: GameView;
@@ -36,6 +38,10 @@
     offset?: number;
     /** The move being animated, if any. */
     beat?: Beat | null;
+    /** The beat's player is still thinking: its move isn't on the table yet. */
+    thinking?: boolean;
+    /** On a new deal, the seats that had cards on the table: they go back to the mazo first. */
+    swept?: number[];
     /** Moves are still being animated: the table is behind, so nothing can be played. */
     busy?: boolean;
     onAct: (action: GameAction) => void;
@@ -54,6 +60,8 @@
     viewer,
     offset = 0,
     beat = null,
+    thinking = false,
+    swept = [],
     busy = false,
     onAct,
     nextDeal = null,
@@ -67,6 +75,59 @@
   onMount(() => {
     const id = setInterval(() => (now = Date.now()), 150);
     return () => clearInterval(id);
+  });
+
+  // --- full screen ---------------------------------------------------------------------------
+  // The table fills the window by default (and the screen, when the browser lets it: the
+  // new-game button asks for it). F11 and the corner button toggle it, Escape steps out. F11
+  // goes through the Fullscreen API like the button, so the page always knows the state and
+  // Escape, F11 and the button agree. Every change says, for a moment, how to undo it.
+  let immersive = $state(true);
+  let screenWide = false; // the browser itself is in full screen
+  let fsHint = $state<"enter" | "exit" | "back" | null>(null);
+  let fsHintTimer: ReturnType<typeof setTimeout> | undefined;
+  function hintFullscreen(kind: "enter" | "exit" | "back") {
+    fsHint = kind;
+    clearTimeout(fsHintTimer);
+    fsHintTimer = setTimeout(() => (fsHint = null), 3500);
+  }
+  function setImmersive(on: boolean) {
+    immersive = on;
+    if (on && !document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    }
+    if (!on && document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    hintFullscreen(on ? "exit" : "back");
+  }
+  function fullscreenChange() {
+    // The browser's own Escape leaves full screen without a keydown reaching the page.
+    if (screenWide && !document.fullscreenElement) {
+      immersive = false;
+      hintFullscreen("back");
+    }
+    screenWide = !!document.fullscreenElement;
+  }
+  onMount(() => {
+    // Arriving by a link (no click to allow it), the browser keeps its bars: say how to go
+    // full screen.
+    const id = setTimeout(() => !document.fullscreenElement && hintFullscreen("enter"), 800);
+    return () => {
+      clearTimeout(id);
+      clearTimeout(fsHintTimer);
+    };
+  });
+
+  // The moves: shown while the pointer is over their button or the panel, never by a click.
+  let logOpen = $state(false);
+
+  // A chime when the move passes to the viewer (once the table has caught up).
+  const myMove = $derived(
+    !busy && view.me !== null && view.to_act === view.me && view.actions.length > 0,
+  );
+  let hadMove = false;
+  $effect(() => {
+    if (myMove && !hadMove) play("turn");
+    hadMove = myMove;
   });
 
   // --- seating and camera -----------------------------------------------------------------
@@ -100,12 +161,12 @@
   function anchor(seat: number): { x: number; y: number } {
     const top = far.indexOf(seat);
     const col = top >= 0 ? top : near.indexOf(seat);
-    return { x: ((col + 0.5) * 100) / 3, y: top >= 0 ? 12 : 66 };
+    return { x: ((col + 0.5) * 100) / 3, y: top >= 0 ? 10 : 70 };
   }
   /** The mazo sits on the felt in front of the dealer, beside their stack. */
   const mazo = $derived.by(() => {
     const a = anchor(view.dealer);
-    return { x: a.x + 11, y: a.y < 50 ? 36 : 56 };
+    return { x: a.x + 11, y: a.y < 50 ? 31 : 53 };
   });
 
   // Señas are only seen face to face: the player across in focus (14.4). Spectators see all.
@@ -130,7 +191,6 @@
     }
     return { tone: "wait", key: "game.prompt.idle" };
   });
-  const myTurn = $derived(!busy && view.actions.some((a) => a.kind === "jugar"));
 
   // The card winning the ronda being played (the ronda closes once everyone has played).
   const current = $derived(view.rounds.length > view.results.length ? view.rounds.at(-1) : null);
@@ -170,15 +230,21 @@
           ? t("game.rondaWonMe", { n: e.number ?? "" })
           : t("game.rondaWon", { n: e.number ?? "", name: who });
       case "envido_resuelto": {
+        // No quiero has no winner seat: the chanter's team takes the points.
+        const pts = e.points ?? [0, 0];
+        const team = pts[1] > pts[0] ? 1 : 0;
+        if (e.seat == null)
+          return `${t("game.envidoTeam", { team: view.team_names[team] })} (+${pts[team]})`;
         const won = t(e.seat === view.me ? "game.envidoWonMe" : "game.envidoWon");
-        return `${who} ${won} (+${Math.max(...(e.points ?? [0]))})`;
+        const tanto = e.number != null ? ` ${t("game.withTanto", { n: e.number })}` : "";
+        return `${who} ${won}${tanto} (+${pts[team]})`;
       }
       case "interferencia":
         return by(t("game.interference"));
       case "jugar":
         return e.card ? by(cardName(e.card.number, e.card.suit as Suit)) : who;
       case "declarar":
-        return by(String(e.number));
+        return by(t("game.tantoSaid", { n: e.number ?? "" }));
       case "reclamar":
         return by(
           `${ACTION_LABELS.reclamar} (${t("upheld" in e && e.upheld ? "game.claimUpheld" : "game.claimRejected")})`,
@@ -195,22 +261,25 @@
     return LOUD.has(b.kind) ? `¡${label}!` : label;
   }
 
-  // The current beat, split into what each part of the table draws.
+  // The current beat, split into what each part of the table draws. While its player thinks,
+  // only the thinking dots show; the move is drawn once it's made.
+  const move = $derived(thinking ? null : beat);
   const speaking = $derived(
-    beat && beat.seat !== null && beat.kind !== "jugar" && !BANNERS.has(beat.kind) ? beat : null,
+    move && move.seat !== null && move.kind !== "jugar" && !BANNERS.has(move.kind) ? move : null,
   );
-  const shout = $derived(beat && LOUD.has(beat.kind) ? beat : null);
-  const banner = $derived(beat && BANNERS.has(beat.kind) ? beat : null);
-  const leaving = $derived(beat && beat.seat !== null && LEAVE.has(beat.kind) ? beat : null);
-  const dealing = $derived(beat?.kind === "reparto" ? beat : null);
-  /** Style for the parts that wait until the player stops thinking. */
-  const delay = $derived(`--think: ${beat?.think ?? 0}ms`);
+  // Only a new deal and the end of the match get a banner. Rondas, envidos and the end of a
+  // mano show on the cards, the scoreboard and the log instead.
+  const banner = $derived(
+    move && (move.kind === "reparto" || move.kind === "resultado") ? move : null,
+  );
+  const leaving = $derived(move && move.seat !== null && LEAVE.has(move.kind) ? move : null);
+  const dealing = $derived(move?.kind === "reparto" ? move : null);
 
   function flying(seat: number) {
-    return beat?.kind === "jugar" && beat.seat === seat ? beat.id : null;
+    return move?.kind === "jugar" && move.seat === seat ? move.id : null;
   }
   function wonRonda(seat: number) {
-    return beat?.kind === "ronda" && beat.seat === seat;
+    return move?.kind === "ronda" && move.seat === seat;
   }
   function acting(seat: number) {
     return beat !== null && beat.seat === seat && !BANNERS.has(beat.kind);
@@ -220,14 +289,30 @@
   // Interactive señas: hold a key, release to send with the held time as duration.
   const held = new Map<string, number>();
   const keys = $derived(bindings());
-  let helpOpen = $state(false);
+  let settingsTab = $state<GameSettingsTab | null>(null);
+  // Tab, held: the keys in use, over the table.
+  let keymapOpen = $state(false);
   function typing(target: EventTarget | null) {
     return (
       target instanceof HTMLElement && ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName)
     );
   }
   function keydown(e: KeyboardEvent) {
-    if (typing(e.target) || e.ctrlKey || e.metaKey || e.altKey || helpOpen) return;
+    if (typing(e.target) || e.ctrlKey || e.metaKey || e.altKey || settingsTab) return;
+    if (e.code === "F11") {
+      e.preventDefault();
+      setImmersive(!immersive);
+      return;
+    }
+    if (e.code === "Tab") {
+      e.preventDefault();
+      keymapOpen = true;
+      return;
+    }
+    if (e.code === "Escape" && immersive) {
+      setImmersive(false);
+      return;
+    }
     const command = commandForCode(e.code, keys);
     if (command === "cut" && nextDeal?.mine && !cutting) {
       e.preventDefault();
@@ -254,6 +339,7 @@
     }
   }
   function keyup(e: KeyboardEvent) {
+    if (e.code === "Tab") keymapOpen = false;
     const start = held.get(e.code);
     held.delete(e.code);
     const sena = senaForCode(e.code, keys);
@@ -261,7 +347,6 @@
     onSena(sena.sena, sena.spot, Math.min(5000, Math.max(150, Date.now() - start)));
   }
 
-  const TEAM_BG = ["bg-indigo-500", "bg-rose-500"];
   const TONES = {
     go: "border-emerald-400 bg-emerald-50/95 text-emerald-900",
     answer: "border-amber-400 bg-amber-50/95 text-amber-950",
@@ -270,25 +355,27 @@
   };
 </script>
 
-<svelte:window onkeydown={keydown} onkeyup={keyup} />
+<svelte:window onkeydown={keydown} onkeyup={keyup} onblur={() => (keymapOpen = false)} />
+<svelte:document onfullscreenchange={fullscreenChange} />
 
 {#snippet stack(seat: number, from: "far" | "near" | "me")}
   {@const cards = view.seats[seat].played}
   {@const fly = flying(seat)}
   {@const won = wonRonda(seat)}
   {@const lead = leads(seat)}
+  <!-- Played cards pile up; hovering spreads them out to read every one. -->
   <div
-    class="relative h-24"
-    style="width: {56 + 12 * Math.max(0, cards.length - 1)}px; {delay}"
+    class="stack relative h-24"
+    style="width: {56 + 12 * Math.max(0, cards.length - 1)}px; --n: {Math.max(0, cards.length - 1)}"
     data-testid="stack-{seat}"
   >
-    {#each cards as c, i (i + c.number + c.suit)}
+    {#each cards as c, i (`${c.number}-${c.suit}`)}
       {@const last = i === cards.length - 1}
       <div
-        class="absolute rounded-md {fly !== null && last ? `fly fly-${from}` : ''} {won && last
-          ? 'winner'
-          : ''} {lead && last ? lead : ''}"
-        style="left: {12 * i}px; top: {6 * i}px; z-index: {i}"
+        class="played absolute rounded-[4%/2.7%] {fly !== null && last
+          ? `fly fly-${from}`
+          : ''} {won && last ? 'winner' : ''} {lead && last ? lead : ''}"
+        style="--i: {i}; z-index: {i}"
         data-lead={lead && last ? lead : undefined}
       >
         <PlayingCard number={c.number} suit={c.suit as Suit} class="w-14 shadow-md" />
@@ -306,11 +393,11 @@
 <!-- Far players sit at the top edge of the view: their words show over their face. -->
 {#snippet bubble(seat: number, place: "over" | "above")}
   {@const where = place === "over" ? "top-1/3" : "-top-9"}
-  {#if beat && beat.think > 0 && beat.seat === seat}
+  {#if thinking && beat && beat.seat === seat}
     {#key beat.id}
       <div
         class="thinking pointer-events-none absolute left-1/2 z-30 -translate-x-1/2 rounded-full bg-white/95 px-3 py-1 text-sm font-bold text-slate-600 shadow {where}"
-        style={delay}
+        style="--think: {beat.think}ms"
         aria-label={t("game.thinking")}
       >
         <span class="dot">•</span><span class="dot">•</span><span class="dot">•</span>
@@ -325,7 +412,6 @@
         )
           ? 'loud bg-amber-400 text-xl text-amber-950'
           : 'bg-white text-sm text-slate-900'} {where}"
-        style={delay}
         role="status"
       >
         {said(speaking)}
@@ -334,293 +420,387 @@
   {/if}
 {/snippet}
 
-<div class="grid gap-4 lg:grid-cols-[1fr_17rem]">
-  <div class="space-y-3">
+{#snippet glyph(path: string)}
+  <svg
+    viewBox="0 0 24 24"
+    class="h-5 w-5"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    {@html path}
+  </svg>
+{/snippet}
+
+<!-- First person at a 3-3 table, filling the window unless the player stepped out of it. -->
+<div
+  class="scene overflow-hidden [perspective:1100px] {immersive
+    ? 'fixed inset-0 z-50'
+    : 'relative h-[calc(100vh-6rem)] min-h-[40rem] rounded-2xl shadow-2xl'}"
+  data-testid="scene"
+  data-immersive={immersive}
+>
+  <!-- the match: a see-through plaque on the left, out of the table's way -->
+  <div class="absolute top-1/2 left-3 z-30 -translate-y-1/2">
     <Scoreboard {view} {myTeam} {nameOf} />
+  </div>
 
-    <!-- First person at a 3-3 table. The camera pans to the player across in focus. -->
+  <!-- the table, right of the scoreboard -->
+  <div class="stage absolute inset-y-0 right-0 left-64">
+    <!-- The camera pans to the player across in focus. -->
     <div
-      class="scene relative h-[46rem] overflow-hidden rounded-2xl shadow-2xl [perspective:1100px]"
+      class="camera absolute inset-0"
+      style="transform: translateX({(1 - focusIndex) * 8}%) rotateY({(focusIndex - 1) * -6}deg)"
+      data-focus={focus}
     >
+      <div class="felt absolute inset-x-[2%] top-[21%] bottom-[37%] rounded-[3rem]"></div>
+
+      <!-- the mazo, in front of the dealer -->
       <div
-        class="camera absolute inset-0"
-        style="transform: translateX({(1 - focusIndex) * 8}%) rotateY({(focusIndex - 1) * -6}deg)"
-        data-focus={focus}
+        class="absolute z-10 -translate-x-1/2 -translate-y-1/2"
+        style="left: {mazo.x}%; top: {mazo.y}%"
+        data-testid="mazo"
       >
-        <div class="felt absolute inset-x-[2%] top-[22%] bottom-[24%] rounded-[3rem]"></div>
-
-        <!-- the mazo, in front of the dealer -->
-        <div
-          class="absolute z-10 -translate-x-1/2 -translate-y-1/2"
-          style="left: {mazo.x}%; top: {mazo.y}%"
-          data-testid="mazo"
+        <Mazo class="w-11" state={cutting ? "cutting" : nextDeal && !busy ? "shuffling" : "idle"} />
+        <span class="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[0.6rem] text-white/80"
+          >{t("game.mazo")}</span
         >
-          <Mazo
-            class="w-11"
-            state={cutting ? "cutting" : nextDeal && !busy ? "shuffling" : "idle"}
-          />
-          <span class="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[0.6rem] text-white/80"
-            >{t("game.mazo")}</span
-          >
-        </div>
-
-        <div class="relative grid h-[76%] grid-cols-3">
-          {#each [0, 1, 2] as col (col)}
-            {@const top = far[col]}
-            {@const bottom = near[col]}
-            {@const ts = view.seats[top]}
-            {@const bs = view.seats[bottom]}
-            <div class="flex flex-col items-center justify-between pt-2">
-              <!-- the player across -->
-              <div class="relative flex flex-col items-center gap-1" data-testid="seat-{top}">
-                {@render bubble(top, "over")}
-                <SeatBadge
-                  seat={ts}
-                  label={nameOf(top)}
-                  look={top === focus ? "focus" : "dim"}
-                  size={top === focus ? "lg" : "md"}
-                  mine={ts.team === myTeam}
-                  role={roleOf(top)}
-                  turn={view.to_act === top && !busy}
-                  acting={acting(top)}
-                  sena={senaOf(top)}
-                  onclick={() => look(top)}
-                />
-                <Hand
-                  cards={ts.cards_left}
-                  width={34}
-                  label={t("game.handOf", { name: ts.name })}
-                />
-                {#if ts.shown.length}
-                  <div class="flex gap-1">
-                    {#each ts.shown as c (c.number + c.suit)}
-                      <PlayingCard number={c.number} suit={c.suit as Suit} class="w-8" />
-                    {/each}
-                  </div>
-                {/if}
-              </div>
-
-              <!-- the played cards, each stack in front of its player -->
-              <div class="flex flex-col items-center gap-2">
-                {@render stack(top, "far")}
-                {@render stack(bottom, bottom === viewer ? "me" : "near")}
-              </div>
-
-              <!-- the viewer's side: seen from the corner of the eye, out of focus -->
-              <div class="relative flex flex-col items-center gap-1" data-testid="seat-{bottom}">
-                {@render bubble(bottom, "above")}
-                <SeatBadge
-                  seat={bs}
-                  label={nameOf(bottom)}
-                  look={bottom === viewer && view.me !== null ? "focus" : "blur"}
-                  size={bottom === viewer ? "md" : "sm"}
-                  mine={bs.team === myTeam}
-                  role={roleOf(bottom)}
-                  turn={view.to_act === bottom && !busy}
-                  acting={acting(bottom)}
-                />
-                {#if bottom !== viewer}
-                  <Hand
-                    cards={bs.cards_left}
-                    width={26}
-                    label={t("game.handOf", { name: bs.name })}
-                  />
-                {/if}
-              </div>
-            </div>
-          {/each}
-        </div>
-
-        <!-- a player going to the mazo: their cards slide onto it -->
-        {#if leaving && leaving.seat !== null}
-          {@const from = anchor(leaving.seat)}
-          {#key leaving.id}
-            {#each [0, 1, 2] as i (i)}
-              <div
-                class="travel pointer-events-none absolute z-20"
-                style="--x0: {from.x}%; --y0: {from.y}%; --x1: {mazo.x}%; --y1: {mazo.y}%; --i: {i}; {delay}"
-                data-testid="to-mazo"
-              >
-                <PlayingCard faceDown class="w-9" />
-              </div>
-            {/each}
-          {/key}
-        {/if}
-
-        <!-- a new deal: cards go out from the mazo to every player -->
-        {#if dealing}
-          {#key dealing.id}
-            {#each [...far, ...near] as seat, i (seat)}
-              {@const to = anchor(seat)}
-              <div
-                class="travel deal pointer-events-none absolute z-20"
-                style="--x0: {mazo.x}%; --y0: {mazo.y}%; --x1: {to.x}%; --y1: {to.y}%; --i: {i}; --think: 0ms"
-              >
-                <PlayingCard faceDown class="w-8" />
-              </div>
-            {/each}
-          {/key}
-        {/if}
       </div>
 
-      <!-- how to play, keys -->
-      <button
-        class="absolute top-3 right-3 z-30 rounded-full bg-white/85 p-2 text-slate-700 shadow hover:bg-white"
-        aria-label={t("help.title")}
-        title={t("help.title")}
-        onclick={() => (helpOpen = true)}
-      >
-        <svg
-          viewBox="0 0 24 24"
-          class="h-5 w-5"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <circle cx="12" cy="12" r="3" />
-          <path
-            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
-          />
-        </svg>
-      </button>
-
-      <!-- the state of the mano: rondas, envido, truco -->
-      <div class="absolute top-3 left-3 z-20"><TableStatus {view} /></div>
-
-      <button
-        class="absolute top-[14%] left-2 z-20 rounded-full bg-white/80 px-3 py-1 text-xl shadow disabled:opacity-30"
-        aria-label={t("game.lookLeft")}
-        disabled={focusIndex === 0}
-        onclick={() => pan(-1)}>‹</button
-      >
-      <button
-        class="absolute top-[14%] right-2 z-20 rounded-full bg-white/80 px-3 py-1 text-xl shadow disabled:opacity-30"
-        aria-label={t("game.lookRight")}
-        disabled={focusIndex === 2}
-        onclick={() => pan(1)}>›</button
-      >
-
-      <!-- a loud canto: the whole table hears it -->
-      {#if shout && shout.seat !== null}
-        {#key shout.id}
-          <div
-            class="shout pointer-events-none absolute top-[36%] left-1/2 z-30 -translate-x-1/2 text-center"
-            style={delay}
-          >
-            <div class="text-5xl font-black tracking-tight text-amber-300 drop-shadow-lg">
-              {said(shout)}
+      <!-- the players across, at the far edge -->
+      <div class="absolute inset-x-0 top-0 grid h-[21%] grid-cols-3">
+        {#each far as top (top)}
+          {@const ts = view.seats[top]}
+          <div class="flex justify-center pt-2">
+            <div class="relative flex flex-col items-center gap-1" data-testid="seat-{top}">
+              {@render bubble(top, "over")}
+              <SeatBadge
+                seat={ts}
+                label={nameOf(top)}
+                look={top === focus ? "focus" : "dim"}
+                size={top === focus ? "lg" : "md"}
+                mine={ts.team === myTeam}
+                role={roleOf(top)}
+                turn={view.to_act === top && !busy}
+                acting={acting(top)}
+                sena={senaOf(top)}
+                onclick={() => look(top)}
+              />
+              <Hand cards={ts.cards_left} width={34} label={t("game.handOf", { name: ts.name })} />
+              {#if ts.shown.length}
+                <div class="flex gap-1">
+                  {#each ts.shown as c (`${c.number}-${c.suit}`)}
+                    <PlayingCard number={c.number} suit={c.suit as Suit} class="w-8" />
+                  {/each}
+                </div>
+              {/if}
             </div>
-            <div class="text-sm font-semibold text-white drop-shadow">{nameOf(shout.seat)}</div>
           </div>
-        {/key}
-      {/if}
+        {/each}
+      </div>
 
-      {#if banner}
-        {#key banner.id}
-          <div
-            class="banner pointer-events-none absolute top-[40%] left-1/2 z-30 -translate-x-1/2 rounded-xl px-5 py-2 text-lg font-bold whitespace-nowrap text-white shadow-xl {banner.kind ===
-              'ronda' && banner.seat !== null
-              ? TEAM_BG[view.seats[banner.seat].team]
-              : 'bg-slate-900/85'}"
-            role="status"
-          >
-            {describe(banner)}
+      <!-- the played cards on the felt, each stack in front of its player -->
+      <div class="absolute inset-x-0 top-[23%] bottom-[39%] grid grid-cols-3">
+        {#each [0, 1, 2] as col (col)}
+          <div class="flex flex-col items-center justify-between py-2">
+            {@render stack(far[col], "far")}
+            {@render stack(near[col], near[col] === viewer ? "me" : "near")}
           </div>
-        {/key}
-      {/if}
+        {/each}
+      </div>
 
-      <!-- between manos: the dealer shuffles, the player to their left cuts -->
-      {#if nextDeal && !busy}
-        <div
-          class="absolute top-[47%] left-1/2 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full bg-slate-950/80 px-4 py-2 text-sm text-white shadow-xl"
-          data-testid="next-deal"
-        >
-          {#if nextDeal.mine}
-            <span>{t("game.cutPrompt")}</span>
-            <button
-              class="rounded-full bg-amber-400 px-4 py-1 font-bold text-amber-950 hover:bg-amber-300 disabled:opacity-50"
-              disabled={cutting}
-              onclick={() => onCut?.()}
-              >{t("game.cut")}
-              {#if keys.cut}<kbd class="ml-1 text-xs opacity-70">{keyLabel(keys.cut)}</kbd
-                >{/if}</button
+      <!-- the viewer's side, at the near edge: a mirror of the far one -->
+      <div class="absolute inset-x-0 top-[63%] grid h-[17%] grid-cols-3">
+        {#each near as bottom (bottom)}
+          {@const bs = view.seats[bottom]}
+          <div class="flex justify-center">
+            <div
+              class="relative flex flex-col items-center justify-start gap-1"
+              data-testid="seat-{bottom}"
             >
-          {:else}
-            <span>
-              {t("game.nextIn", {
-                s: Math.max(0, Math.ceil((nextDeal.endsAt - now) / 1000)),
-                name: nameOf(nextDeal.cutter),
-              })}
+              {@render bubble(bottom, "above")}
+              {#if bottom !== viewer}
+                <Hand
+                  cards={bs.cards_left}
+                  width={26}
+                  label={t("game.handOf", { name: bs.name })}
+                />
+              {/if}
+              <SeatBadge
+                seat={bs}
+                label={nameOf(bottom)}
+                look={bottom === viewer && view.me !== null ? "focus" : "dim"}
+                size="md"
+                mine={bs.team === myTeam}
+                role={roleOf(bottom)}
+                turn={view.to_act === bottom && !busy}
+                acting={acting(bottom)}
+              />
+            </div>
+          </div>
+        {/each}
+      </div>
+
+      <!-- a player going to the mazo: their cards slide onto it -->
+      {#if leaving && leaving.seat !== null}
+        {@const from = anchor(leaving.seat)}
+        {#key leaving.id}
+          {#each [0, 1, 2] as i (i)}
+            <div
+              class="travel pointer-events-none absolute z-20"
+              style="--x0: {from.x}%; --y0: {from.y}%; --x1: {mazo.x}%; --y1: {mazo.y}%; --i: {i}"
+              data-testid="to-mazo"
+            >
+              <PlayingCard faceDown class="w-9" />
+            </div>
+          {/each}
+        {/key}
+      {/if}
+
+      <!-- a new deal: the last mano's cards go back to the mazo, then out to every player -->
+      {#if dealing}
+        {#key dealing.id}
+          {#each swept as seat, i (seat)}
+            {@const from = anchor(seat)}
+            <div
+              class="travel pointer-events-none absolute z-20"
+              style="--x0: {from.x}%; --y0: {from.y}%; --x1: {mazo.x}%; --y1: {mazo.y}%; --i: {i}"
+              data-testid="sweep"
+            >
+              <PlayingCard faceDown class="w-9" />
+            </div>
+          {/each}
+          {#each [...far, ...near] as seat, i (seat)}
+            {@const to = anchor(seat)}
+            <div
+              class="travel deal pointer-events-none absolute z-20"
+              style="--x0: {mazo.x}%; --y0: {mazo.y}%; --x1: {to.x}%; --y1: {to.y}%; --i: {i}; --after: {swept.length
+                ? SWEEP_MS
+                : 0}ms"
+            >
+              <PlayingCard faceDown class="w-8" />
+            </div>
+          {/each}
+        {/key}
+      {/if}
+    </div>
+
+    <button
+      class="absolute top-[9%] left-2 z-20 rounded-full bg-white/80 px-3 py-1 text-xl shadow disabled:opacity-30"
+      aria-label={t("game.lookLeft")}
+      disabled={focusIndex === 0}
+      onclick={() => pan(-1)}>‹</button
+    >
+    <button
+      class="absolute top-[9%] right-2 z-20 rounded-full bg-white/80 px-3 py-1 text-xl shadow disabled:opacity-30"
+      aria-label={t("game.lookRight")}
+      disabled={focusIndex === 2}
+      onclick={() => pan(1)}>›</button
+    >
+
+    <!-- the envido, for everyone at the table: stakes, numbers said, who won it -->
+    <div class="absolute top-[24%] left-1/2 z-30 -translate-x-1/2">
+      {#key move?.kind === "envido_resuelto" ? move.id : "live"}
+        <EnvidoPanel {view} {nameOf} announcing={move?.kind === "envido_resuelto"} />
+      {/key}
+    </div>
+
+    {#if banner}
+      {#key banner.id}
+        <div
+          class="banner pointer-events-none absolute top-[40%] left-1/2 z-30 -translate-x-1/2 rounded-xl bg-slate-900/85 px-5 py-2 text-lg font-bold whitespace-nowrap text-white shadow-xl"
+          role="status"
+        >
+          {describe(banner)}
+        </div>
+      {/key}
+    {/if}
+
+    <!-- between manos: the dealer shuffles, the player to their left cuts -->
+    {#if nextDeal && !busy}
+      <div
+        class="absolute top-[42%] left-1/2 z-30 flex -translate-x-1/2 items-center gap-3 rounded-full bg-slate-950/80 px-4 py-2 text-sm text-white shadow-xl"
+        data-testid="next-deal"
+      >
+        {#if nextDeal.mine}
+          <span>{t("game.cutPrompt")}</span>
+          <button
+            class="rounded-full bg-amber-400 px-4 py-1 font-bold text-amber-950 hover:bg-amber-300 disabled:opacity-50"
+            disabled={cutting}
+            onclick={() => onCut?.()}>{t("game.cut")}</button
+          >
+        {:else}
+          <span>
+            {t("game.nextIn", {
+              s: Math.max(0, Math.ceil((nextDeal.endsAt - now) / 1000)),
+              name: nameOf(nextDeal.cutter),
+            })}
+          </span>
+        {/if}
+      </div>
+    {/if}
+
+    <!-- the viewer's hand and voice, at the near edge of the table -->
+    <div
+      class="dock absolute inset-x-0 bottom-0 z-20 grid h-[20%] grid-cols-[1fr_auto_1fr] items-end gap-3 px-4 pb-3"
+    >
+      <div></div>
+
+      {#if view.me !== null}
+        <div class="flex justify-center" data-testid="my-hand">
+          <Hand
+            cards={view.my_cards}
+            width={88}
+            open
+            playable={(c) => !busy && canPlay(view, c.number, c.suit)}
+            onPlay={(c) => onAct({ kind: "jugar", card: c, number: null, sena: null })}
+            label={t("game.myHand")}
+          />
+        </div>
+        <div class="flex justify-end">
+          {#if !busy}<ActionBar actions={view.actions} {onAct} tanto={view.my_tanto} />{/if}
+        </div>
+      {/if}
+    </div>
+  </div>
+
+  <!-- top left: full screen, always in sight -->
+  <div class="absolute top-3 left-3 z-40">
+    <button
+      class="rounded-full bg-white/85 p-2 text-slate-700 shadow hover:bg-white"
+      aria-label={t(immersive ? "game.exitFullscreen" : "game.fullscreen")}
+      aria-keyshortcuts="F11"
+      title="{t(immersive ? 'game.exitFullscreen' : 'game.fullscreen')} (F11)"
+      onclick={() => setImmersive(!immersive)}
+    >
+      {@render glyph(
+        immersive
+          ? '<path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>'
+          : '<path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>',
+      )}
+    </button>
+  </div>
+
+  <!-- upper left, above the scoreboard: Tab shows the keys -->
+  <div class="pointer-events-none absolute top-[18%] left-3 z-40">
+    <span
+      class="hidden w-fit rounded-full bg-slate-950/45 px-2.5 py-1.5 text-[0.65rem] font-semibold text-white/75 backdrop-blur sm:block"
+      aria-hidden="true"><kbd class="font-mono">Tab</kbd> · {t("keymap.title")}</span
+    >
+  </div>
+
+  <!-- bottom left, under the scoreboard: whose move it is -->
+  <div class="absolute bottom-3 left-3 z-30 max-w-60">
+    <!-- "your turn" needs no words: the playable cards light up green -->
+    {#if hint.tone !== "go"}
+      <div
+        class="rounded-xl border-l-4 px-3 py-2 text-sm font-semibold shadow-lg backdrop-blur {TONES[
+          hint.tone
+        ]}"
+        role="status"
+        data-testid="prompt"
+        data-tone={hint.tone}
+      >
+        <span class="flex items-center gap-2">
+          {#if hint.tone === "answer"}
+            <span class="relative flex h-3 w-3 shrink-0">
+              <span
+                class="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75"
+              ></span>
+              <span class="relative inline-flex h-3 w-3 rounded-full bg-amber-500"></span>
             </span>
           {/if}
+          <span>{t(hint.key, hint.vars ?? {})}</span>
+          {#if view.result}<span class="ml-auto font-mono">{view.score.join("–")}</span>{/if}
+        </span>
+      </div>
+    {/if}
+  </div>
+
+  <!-- top right: the moves and the menu, both opening on hover only (no click to open or
+       close): the panel stays while the pointer is over the button or the panel -->
+  <div class="absolute top-3 right-3 z-40 flex items-start gap-2">
+    <div
+      class="flex flex-col items-end gap-2"
+      data-testid="moves"
+      role="group"
+      aria-label={t("game.moves")}
+      onmouseenter={() => (logOpen = true)}
+      onmouseleave={() => (logOpen = false)}
+    >
+      <span
+        class="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold text-slate-700 shadow {logOpen
+          ? 'bg-white'
+          : 'bg-white/85'}"
+      >
+        {@render glyph('<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>')}{t(
+          "game.moves",
+        )}
+      </span>
+      {#if logOpen}
+        <div class="h-[60vh] w-72">
+          <MoveLog {view} text={(e) => describe(e, false)} />
         </div>
       {/if}
-
-      <!-- the viewer's hand and voice, at the near edge of the table -->
-      <div
-        class="dock absolute inset-x-0 bottom-0 z-20 grid h-[24%] grid-cols-[1fr_auto_1fr] items-end gap-3 px-4 pb-3"
+    </div>
+    <div class="group flex flex-col items-end gap-2">
+      <span
+        class="rounded-full bg-white/85 p-2 text-slate-700 shadow group-hover:bg-white"
+        role="img"
+        aria-label={t("game.menu")}
       >
-        <div
-          class="self-end rounded-xl border-l-4 px-3 py-2 text-sm font-semibold shadow-lg backdrop-blur {TONES[
-            hint.tone
-          ]}"
-          role="status"
-          data-testid="prompt"
-          data-tone={hint.tone}
+        {@render glyph('<path d="M4 6h16M4 12h16M4 18h16"/>')}
+      </span>
+      <!-- one see-through panel, its items rows of the same table -->
+      <div
+        class="hidden min-w-52 flex-col divide-y divide-white/15 overflow-hidden rounded-xl bg-slate-900/55 text-white shadow-lg ring-1 ring-white/20 backdrop-blur-md group-hover:flex"
+      >
+        {#each [{ label: t("settings.howto"), icon: '<circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>', run: () => (settingsTab = "howto") }, { label: t("nav.settings"), icon: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>', run: () => (settingsTab = "sound") }] as item (item.label)}
+          <button
+            class="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm font-semibold transition-colors hover:bg-white/15"
+            onclick={item.run}
+          >
+            {item.label}
+            {@render glyph(item.icon)}
+          </button>
+        {/each}
+        <!-- the game goes on without this device; the link brings it back -->
+        <a
+          href="/"
+          class="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm font-semibold text-rose-200 hover:bg-white/15"
+          onclick={() => document.fullscreenElement && document.exitFullscreen?.().catch(() => {})}
         >
-          <span class="flex items-center gap-2">
-            {#if hint.tone === "go" || hint.tone === "answer"}
-              <span class="relative flex h-3 w-3 shrink-0">
-                <span
-                  class="absolute inline-flex h-full w-full animate-ping rounded-full {hint.tone ===
-                  'go'
-                    ? 'bg-emerald-400'
-                    : 'bg-amber-400'} opacity-75"
-                ></span>
-                <span
-                  class="relative inline-flex h-3 w-3 rounded-full {hint.tone === 'go'
-                    ? 'bg-emerald-500'
-                    : 'bg-amber-500'}"
-                ></span>
-              </span>
-            {/if}
-            <span>{t(hint.key, hint.vars ?? {})}</span>
-            {#if view.result}<span class="ml-auto font-mono">{view.score.join("–")}</span>{/if}
-          </span>
-          {#if view.me !== null}
-            <p class="mt-1 text-[0.65rem] font-normal opacity-70">
-              {t("game.keysHelp")}
-            </p>
-          {/if}
-        </div>
-
-        {#if view.me !== null}
-          <div class="flex justify-center" data-testid="my-hand">
-            <Hand
-              cards={view.my_cards}
-              width={92}
-              open={myTurn}
-              keys={myTurn}
-              playable={(c) => !busy && canPlay(view, c.number, c.suit)}
-              onPlay={(c) => onAct({ kind: "jugar", card: c, number: null, sena: null })}
-              label={t("game.myHand")}
-            />
-          </div>
-          <div class="flex justify-end">
-            {#if !busy}<ActionBar actions={view.actions} {onAct} />{/if}
-          </div>
-        {/if}
+          {t("game.leave")}
+          {@render glyph(
+            '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>',
+          )}
+        </a>
       </div>
     </div>
   </div>
 
-  <MoveLog {view} text={(e) => describe(e, false)} />
+  <!-- how to undo the last full-screen change, for a moment -->
+  {#if fsHint}
+    <div
+      class="theme-table table-glass pointer-events-none absolute bottom-[23%] left-1/2 z-40 -translate-x-1/2 rounded-full px-4 py-2 text-sm font-semibold whitespace-nowrap"
+      role="status"
+      data-testid="fullscreen-hint"
+    >
+      {@html t(`game.fsHint.${fsHint}`, {
+        f11: '<kbd class="rounded border border-amber-200/40 bg-black/30 px-1.5 font-mono text-amber-200">F11</kbd>',
+        esc: '<kbd class="rounded border border-amber-200/40 bg-black/30 px-1.5 font-mono text-amber-200">Esc</kbd>',
+      })}
+    </div>
+  {/if}
 </div>
 
-{#if helpOpen}<HelpDialog onClose={() => (helpOpen = false)} />{/if}
+{#if settingsTab}
+  <GameSettings tab={settingsTab} onClose={() => (settingsTab = null)} />
+{/if}
+{#if keymapOpen && !settingsTab}<KeyMap senas={view.mode === "interactive"} />{/if}
 
 <style>
   .camera {
@@ -651,6 +831,26 @@
     background: linear-gradient(0deg, rgb(10 6 3 / 0.85), rgb(10 6 3 / 0.45) 60%, transparent);
   }
 
+  /* A stack spreads out on hover (centred), so every card played can be read. */
+  .stack {
+    transition: translate 0.2s ease-out;
+  }
+  .stack:hover {
+    z-index: 30;
+    translate: calc(var(--n) * -22px) 0;
+  }
+  .played {
+    left: calc(var(--i) * 12px);
+    top: calc(var(--i) * 6px);
+    transition:
+      left 0.2s ease-out,
+      top 0.2s ease-out;
+  }
+  .stack:hover .played {
+    left: calc(var(--i) * 56px);
+    top: 0;
+  }
+
   /* The card winning the ronda so far: gold. A tie between teams: both silver. */
   .lead {
     box-shadow:
@@ -677,8 +877,8 @@
   }
 
   /*
-   * A beat: a bot thinks for --think ms (dots), then acts. Everything that shows the move waits
-   * for --think. Horizontal centring comes from Tailwind's `translate`, so keyframes only move
+   * A beat: a bot thinks for --think ms (dots), then acts; the move is drawn once it's made.
+   * Horizontal centring comes from Tailwind's `translate`, so keyframes only move
    * vertically.
    */
   .thinking {
@@ -714,7 +914,7 @@
   }
 
   .fly {
-    animation: land 0.6s ease-out var(--think) both;
+    animation: land 0.6s ease-out both;
   }
   .fly-far {
     --from: translate(0, -120px) rotate(-16deg) scale(1.4);
@@ -756,7 +956,7 @@
   }
 
   .say {
-    animation: say 0.65s ease-out var(--think) both;
+    animation: say 0.65s ease-out both;
   }
   .say.loud {
     animation-name: speak-up;
@@ -798,29 +998,6 @@
     }
   }
 
-  .shout {
-    animation: shout 0.65s ease-out var(--think) both;
-  }
-  @keyframes shout {
-    0% {
-      opacity: 0;
-      transform: scale(0.3);
-    }
-    30% {
-      opacity: 1;
-      transform: scale(1.25);
-    }
-    50%,
-    85% {
-      opacity: 1;
-      transform: scale(1);
-    }
-    100% {
-      opacity: 0;
-      transform: scale(1.1);
-    }
-  }
-
   .banner {
     animation: banner 1.6s ease-out both;
   }
@@ -845,11 +1022,11 @@
     left: var(--x0);
     top: var(--y0);
     translate: -50% -50%;
-    animation: travel 0.55s ease-in-out calc(var(--think) + var(--i) * 70ms) both;
+    animation: travel 0.55s ease-in-out calc(var(--i) * 70ms) both;
   }
   .travel.deal {
     animation-duration: 0.45s;
-    animation-delay: calc(var(--i) * 110ms);
+    animation-delay: calc(var(--after, 0ms) + var(--i) * 110ms);
   }
   @keyframes travel {
     from {
@@ -873,13 +1050,14 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .camera {
+    .camera,
+    .stack,
+    .played {
       transition: none;
     }
     .fly,
     .say,
     .say.loud,
-    .shout,
     .banner,
     .winner {
       animation-name: fade;

@@ -1,6 +1,13 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+/* The page: a cream paper with a faint fileteado pattern (static/ui/pattern.webp, optional). */
+body {
+  background:
+    url("/ui/pattern.webp") center / cover fixed,
+    #f6f0e2;
+}
+
 @layer components {
   .btn {
     @apply inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-100 disabled:opacity-50;
@@ -26,4 +33,86 @@
   .table td {
     @apply border-b border-slate-100 px-3 py-2;
   }
+}
+
+/*
+ * The table's look (dark wood, felt, amber) for screens that belong with the game: the new game
+ * setup, the in-game settings and the key map. Inside `.theme-table` the light palette the
+ * shared components use (white, slate, indigo...) is remapped, so the bot editor, the keys and
+ * the sound settings follow without a second set of classes.
+ */
+.theme-table {
+  color-scheme: dark;
+  color: #fef3c7;
+  --color-white: rgb(30 17 8 / 0.55);
+  --color-slate-50: rgb(255 248 230 / 0.04);
+  --color-slate-100: rgb(255 248 230 / 0.08);
+  --color-slate-200: rgb(253 230 138 / 0.18);
+  --color-slate-300: rgb(253 230 138 / 0.3);
+  --color-slate-400: rgb(254 243 199 / 0.5);
+  --color-slate-500: rgb(254 243 199 / 0.62);
+  --color-slate-600: rgb(254 243 199 / 0.75);
+  --color-slate-700: rgb(254 243 199 / 0.88);
+  --color-slate-800: #fef3c7;
+  --color-slate-900: #fffbeb;
+  --color-slate-950: #fffbeb;
+  --color-indigo-50: rgb(251 191 36 / 0.08);
+  --color-indigo-100: rgb(251 191 36 / 0.14);
+  --color-indigo-200: rgb(251 191 36 / 0.35);
+  --color-indigo-300: rgb(251 191 36 / 0.5);
+  --color-indigo-400: #fcd34d;
+  --color-indigo-500: #fbbf24;
+  --color-indigo-600: #f59e0b;
+  --color-indigo-700: #fcd34d;
+  --color-green-700: #86efac;
+  --color-amber-700: #fcd34d;
+  --color-red-50: rgb(248 113 113 / 0.12);
+  --color-red-200: rgb(248 113 113 / 0.4);
+  --color-red-600: #fca5a5;
+  --color-red-700: #fca5a5;
+}
+.theme-table .btn-primary {
+  color: #451a03;
+}
+.theme-table .input {
+  background: rgb(20 11 5 / 0.55);
+}
+.theme-table .input::placeholder {
+  color: rgb(254 243 199 / 0.4);
+}
+.theme-table option,
+.theme-table optgroup {
+  background: #2a1a0e;
+  color: #fef3c7;
+}
+.theme-table input[type="range"],
+.theme-table input[type="checkbox"],
+.theme-table input[type="radio"] {
+  accent-color: #f59e0b;
+}
+
+/* A wooden plaque over felt: the panel of those screens. */
+.table-panel {
+  background:
+    linear-gradient(160deg, rgb(74 44 23 / 0.94), rgb(30 17 8 / 0.94)),
+    url("/ui/wood.webp") center / 480px,
+    #2a1a0e;
+  border: 1px solid rgb(253 230 138 / 0.18);
+  box-shadow:
+    0 0 0 4px rgb(42 22 10 / 0.6),
+    0 24px 60px rgb(0 0 0 / 0.45);
+}
+/* See-through, for what floats over the table (key map, settings over the game). */
+.table-glass {
+  background: linear-gradient(160deg, rgb(74 44 23 / 0.72), rgb(30 17 8 / 0.7));
+  border: 1px solid rgb(253 230 138 / 0.2);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 0.5);
+}
+.felt-inset {
+  background:
+    radial-gradient(ellipse at 50% 40%, rgb(255 255 255 / 0.08), transparent 70%),
+    url("/ui/felt.webp") center / 320px,
+    radial-gradient(ellipse at 50% 40%, #236b39, #12482a 80%);
+  box-shadow: inset 0 0 24px rgb(0 0 0 / 0.5);
 }

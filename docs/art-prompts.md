@@ -148,7 +148,7 @@ Draw them in the same cartoon-ink style, as full-length figures (not mirrored ha
 | Files | Count |
 | --- | --- |
 | `<suit>_<NN>.svg` for suit = `espadas`, `bastos`, `oros`, `copas` and NN = `01`…`12` (e.g. `espadas_01.svg`, `copas_12.svg`) | 48 |
-| `dorso.svg` | 1 |
+| `dorso.svg`, or `card-back.jpg` (a painted back; wins over the SVG, cropped to the card and rounded by the import, see `crop` in `import-art.mjs`) | 1 |
 | `comodin-1.svg`, `comodin-2.svg` (optional: truco plays without them) | 0–2 |
 
 SVG is the source format, at 800×1200 (a raster PNG/JPG with the same name also works). `pnpm import-art` renders each card to `frontend/static/cards/<n>-<suit>.webp` at 400×600. The app serves WebP rather than SVG because the cards' paper texture is an SVG filter, which is slow to repaint with many cards on the table. Each SVG must be self-contained, with no references to other files.
@@ -177,6 +177,10 @@ people in focus. Nothing busy in the centre: the table and the cards go on top.
 - **`felt.png`** (1024×1024): > A **seamless, tileable** texture of dark green billiard felt (#1f6b38), seen straight from above, evenly lit, with fine fibres and very subtle noise. No seams, no lighting gradient, no shadows, no objects.
 - **`wood.png`** (1024×1024): > A **seamless, tileable** texture of dark lacquered mahogany for the rim of a card table, seen straight from above, horizontal grain, a soft varnish sheen, evenly lit. No seams, no knots near the edges, no objects.
 
+Also in `assets/ui/` (optional): `banner.jpg`, the home page hero (16:9, fileteado corners, an
+open paper area on the left where the menu sits), and `pattern.jpg`, the page background (a
+faint cream fileteado pattern).
+
 ### 3.3 Review checklist
 
 - [ ] `felt.png` and `wood.png` tile without visible seams (check a 3×3 tiling).
@@ -187,18 +191,21 @@ people in focus. Nothing busy in the centre: the table and the cards go on top.
 
 Optional: a missing file stays silent. Put them in `assets/audio/` as `.ogg` (or `.mp3`/`.wav`
 with ffmpeg installed) and run `pnpm import-art --partial`; they are written to
-`frontend/static/audio/<name>.ogg`. Normalise to about −16 LUFS (music) and −12 LUFS (effects),
-and trim the silence at the start of the effects.
+`frontend/static/audio/<name>.ogg`. The import cleans every sound up (see `AUDIO` in
+`frontend/scripts/import-art.mjs`): music is trimmed of silence, faded and normalised to −16 LUFS
+in two passes; effects are cut to a window of the source (`trim`, in seconds; re-check it with a
+waveform when you replace a source), high-passed, denoised, faded and brought to about −12 LUFS
+with a limiter at −1 dBFS. Intermediate WAVs go to `assets/work/audio/`.
+
+The table plays `music-*`, the menus `menu-1..3`, the settings page `settings`
+(`playlistFor` in `audio.svelte.ts`).
 
 | File | What | Length |
 | --- | --- | --- |
 | `music-1.ogg` | Instrumental lo-fi milonga/tango for a club at night: bandoneón, guitar, soft double bass, brushes. Calm, no vocals, loops cleanly. | 2–3 min |
 | `music-2.ogg` (optional) | A second track in the same mood, a little more upbeat. | 2–3 min |
+| `menu-1.ogg` … `menu-3.ogg` | Music for the menus (home, new game, rules, bots). | 1–2 min |
+| `settings.ogg` | Music for the settings page. | 2–3 min |
+| `turn.ogg` | A soft chime: it's your move. | < 2 s |
 | `card.ogg` | A card slapped onto felt. | < 0.4 s |
 | `shuffle.ogg` | A riffle shuffle of a small deck. | ~1.5 s |
-| `cut.ogg` | A deck being cut and squared on a table. | < 0.6 s |
-| `deal.ogg` | Cards flicked out in quick succession. | < 1 s |
-| `fosforo.ogg` | A wooden match laid on a wooden table (a point scored). | < 0.4 s |
-| `ronda.ogg` | A soft, warm chime (a ronda won). | < 0.8 s |
-| `win.ogg` | A short, cheerful bandoneón flourish (the partido won). | 2–3 s |
-| `click.ogg` | A soft wooden click for buttons. | < 0.2 s |

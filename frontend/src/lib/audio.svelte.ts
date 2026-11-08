@@ -2,13 +2,26 @@
  * Music and sound effects with plain <audio> elements. Files live in static/audio/ (imported
  * from ../assets/audio/ by `pnpm import-art`); a missing file just stays silent. Volumes and
  * mute come from the profile. Browsers only allow sound after the user interacts, so the music
- * starts on the first click or key press.
+ * tries to start on load and again on each click or key press until it plays. Each part of the app has its own playlist: the menus,
+ * the settings and the table (see `playlistFor`).
  */
 import { profile } from "$lib/profile.svelte";
 
-export type Sfx = "card" | "shuffle" | "cut" | "deal" | "fosforo" | "ronda" | "win" | "click";
+export type Sfx = "card" | "shuffle" | "turn";
 
-const MUSIC = ["/audio/music-1.ogg", "/audio/music-2.ogg"];
+export type Playlist = "menu" | "settings" | "game";
+const PLAYLISTS: Record<Playlist, string[]> = {
+  menu: ["/audio/menu-1.ogg", "/audio/menu-2.ogg", "/audio/menu-3.ogg"],
+  settings: ["/audio/settings.ogg"],
+  game: ["/audio/music-1.ogg", "/audio/music-2.ogg"],
+};
+
+/** The music for a page: the table has its own, the settings theirs, the rest the menus'. */
+export function playlistFor(path: string): Playlist {
+  if (/^\/play\/[^/]+/.test(path)) return "game";
+  if (path.startsWith("/settings")) return "settings";
+  return "menu";
+}
 const src = (name: Sfx) => `/audio/${name}.ogg`;
 
 /** The sound a move makes, if any. */
@@ -16,12 +29,6 @@ export function sfxFor(kind: string): Sfx | null {
   switch (kind) {
     case "jugar":
       return "card";
-    case "reparto":
-      return "deal";
-    case "ronda":
-      return "ronda";
-    case "resultado":
-      return "win";
     default:
       return null;
   }
@@ -42,25 +49,48 @@ export function play(name: Sfx): void {
 }
 
 let music: HTMLAudioElement | null = null;
+let playlist: Playlist = "menu";
 let track = 0;
+const tracks = () => PLAYLISTS[playlist];
 
-/** Start the background music (call from a user gesture); it cycles through the tracks. */
-export function startMusic(): void {
-  if (typeof Audio === "undefined" || music) return;
-  music = new Audio(MUSIC[track]);
-  music.volume = volume(profile.musicVolume);
-  music.addEventListener("ended", nextTrack);
-  music.addEventListener("error", () => {
-    // Only the first track is required; without it there is no music.
-    if (track > 0) nextTrack();
-  });
+/** Switch to a page's music; the same playlist keeps playing where it was. */
+export function setPlaylist(next: Playlist): void {
+  if (next === playlist) return;
+  playlist = next;
+  track = 0;
+  if (!music) return; // startMusic picks it up
+  music.src = tracks()[0];
   music.play().catch(() => {});
+}
+
+/**
+ * Start the background music; it cycles through the tracks. Browsers may refuse sound until the
+ * user interacts (and some only count certain gestures), so call it on load and again on every
+ * gesture until it resolves true.
+ */
+export async function startMusic(): Promise<boolean> {
+  if (typeof Audio === "undefined") return false;
+  if (!music) {
+    music = new Audio(tracks()[track]);
+    music.volume = volume(profile.musicVolume);
+    music.addEventListener("ended", nextTrack);
+    music.addEventListener("error", () => {
+      // Only the first track is required; without it there is no music.
+      if (track > 0) nextTrack();
+    });
+  }
+  try {
+    await music.play();
+    return true;
+  } catch {
+    return false; // not allowed yet, or no file: the next gesture tries again
+  }
 }
 
 function nextTrack() {
   if (!music) return;
-  track = (track + 1) % MUSIC.length;
-  music.src = MUSIC[track];
+  track = (track + 1) % tracks().length;
+  music.src = tracks()[track];
   music.play().catch(() => {});
 }
 

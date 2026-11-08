@@ -12,6 +12,7 @@ import {
   pendingCanto,
   prompt,
   drawTeamNames,
+  envidoBoard,
   fanLayout,
   fanWidth,
   leadingCards,
@@ -181,6 +182,8 @@ describe("tally", () => {
     expect(tally(13)).toEqual([5, 5, 3, 0, 0, 0]);
     expect(tally(30)).toEqual([5, 5, 5, 5, 5, 5]);
     expect(tally(34)).toEqual([5, 5, 5, 5, 5, 5]);
+    expect(tally(12, 18)).toEqual([5, 5, 2, 0]); // a shorter partido: fewer squares
+    expect(tally(20, 18)).toEqual([5, 5, 5, 3]);
   });
 });
 
@@ -267,15 +270,62 @@ describe("status", () => {
           team: 0,
           points: 5,
           winner_seat: 2,
-          tantos: {},
+          tantos: { 0: 25, 2: 28 },
         },
         truco_level: 1,
         truco_accepted: 0,
       }),
     );
     expect(s.rondas).toEqual([1, "parda", null]);
-    expect(s.envido).toEqual({ label: "Envido + Real envido", state: "accepted", points: 5 });
+    expect(s.envido).toEqual({
+      label: "Envido + Real envido",
+      state: "accepted",
+      points: 5,
+      tanto: 28,
+    });
     expect(s.truco).toEqual({ label: "Truco", state: "sung" });
     expect(pendingCanto(table())).toBeNull();
+  });
+});
+
+describe("envidoBoard", () => {
+  it("tells what quiero and no quiero are worth while the canto waits", () => {
+    const v = table({
+      envido_calls: ["envido"],
+      pending: [{ family: "envido", chanter: 3, in_turn: true, irregular: false }],
+      envido_stakes: { quiero: [2, 2], no_quiero: 1, team: 1 },
+    });
+    expect(envidoBoard(v)).toMatchObject({ kind: "stakes", chanter: 3, quiero: [2], noQuiero: 1 });
+    // a falta is worth what the winner lacks: one number per team
+    const falta = { ...v, envido_stakes: { quiero: [27, 20], no_quiero: 1, team: 1 } };
+    expect(envidoBoard(falta)).toMatchObject({ quiero: [27, 20] });
+  });
+
+  it("lists the numbers said in turn from mano, the first highest one best (11.4, 11.6)", () => {
+    const v = table({
+      phase: "declaring",
+      mano: 4,
+      to_act: 1,
+      envido_calls: ["envido"],
+      declarations: { 0: 28, 4: 28, 5: null },
+    });
+    expect(envidoBoard(v)).toEqual({
+      kind: "declaring",
+      label: "Envido",
+      next: 1,
+      said: [
+        { seat: 4, number: 28, best: true },
+        { seat: 5, number: null, best: false },
+        { seat: 0, number: 28, best: false },
+      ],
+    });
+  });
+
+  it("announces who won only while the result beat is on screen", () => {
+    const envido = { calls: ["envido"], accepted: true, team: 1, points: 2, winner_seat: 1 };
+    const v = table({ mano: 0, envido: { ...envido, tantos: { 0: 25, 1: 30 } } });
+    expect(envidoBoard(v)).toBeNull();
+    expect(envidoBoard(v, true)).toMatchObject({ kind: "result", winner: 1, points: 2 });
+    expect(envidoBoard(v, true)?.said.find((s) => s.best)?.seat).toBe(1);
   });
 });

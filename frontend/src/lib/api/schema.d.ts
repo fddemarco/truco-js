@@ -77,6 +77,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/games/scoring": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Scoring Info
+     * @description The chains a game can give points to, with the reglamento's (the defaults).
+     */
+    get: operations["scoring_info_api_games_scoring_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/games": {
     parameters: {
       query?: never;
@@ -121,6 +141,7 @@ export interface paths {
     /**
      * Game View
      * @description `look`: the seat the viewer's camera is on; only its señas are visible (14.4).
+     *     `since`: the last step the client has; the view carries the steps after it.
      */
     get: operations["game_view_api_games__game_id__get"];
     put?: never;
@@ -209,6 +230,8 @@ export interface components {
       token: string;
       /** Look */
       look?: number | null;
+      /** Since */
+      since?: number | null;
       action: components["schemas"]["ActionModel-Input"];
     };
     /**
@@ -410,6 +433,35 @@ export interface components {
      */
     CardOrder: "strongest_first" | "weakest_first" | "cheapest_winner" | "random";
     /**
+     * ChainInfo
+     * @description A canto chain that can be configured, with the reglamento's points.
+     */
+    ChainInfo: {
+      /**
+       * Family
+       * @enum {string}
+       */
+      family: "envido" | "truco";
+      /** Chain */
+      chain: string[];
+      /** Quiero */
+      quiero: number | null;
+      /** No Quiero */
+      no_quiero: number;
+    };
+    /**
+     * ChainSetup
+     * @description Points for one canto chain, e.g. ["envido", "real_envido"]. None: the default.
+     */
+    ChainSetup: {
+      /** Chain */
+      chain: string[];
+      /** Quiero */
+      quiero?: number | null;
+      /** No Quiero */
+      no_quiero?: number | null;
+    };
+    /**
      * Character
      * @enum {string}
      */
@@ -445,6 +497,18 @@ export interface components {
      * @enum {string}
      */
     EnvidoCall: "envido" | "real_envido" | "falta_envido";
+    /**
+     * EnvidoStakesView
+     * @description An envido canto waiting for an answer: what each answer is worth (Anexo B.2/B.3).
+     */
+    EnvidoStakesView: {
+      /** Quiero */
+      quiero: number[];
+      /** No Quiero */
+      no_quiero: number;
+      /** Team */
+      team: number;
+    };
     /** EnvidoView */
     EnvidoView: {
       /** Calls */
@@ -483,6 +547,7 @@ export interface components {
     GameCreate: {
       /** @default strict */
       mode?: components["schemas"]["RuleMode"];
+      scoring?: components["schemas"]["ScoringSetup"] | null;
       /** Seats */
       seats: components["schemas"]["SeatSetup"][];
       /** Team Names */
@@ -511,6 +576,16 @@ export interface components {
       team_names: string[];
       /** Score */
       score: number[];
+      /**
+       * Target
+       * @default 30
+       */
+      target: number;
+      /**
+       * Malas Max
+       * @default 15
+       */
+      malas_max: number;
       /** Hand Number */
       hand_number: number;
       /** Hand Kind */
@@ -557,6 +632,7 @@ export interface components {
        */
       truco_accepted: number;
       envido: components["schemas"]["EnvidoView"] | null;
+      envido_stakes: components["schemas"]["EnvidoStakesView"] | null;
       /**
        * Declarations
        * @default {}
@@ -587,6 +663,8 @@ export interface components {
        * @default []
        */
       my_cards: components["schemas"]["CardModel"][];
+      /** My Tanto */
+      my_tanto: number | null;
       /**
        * Actions
        * @default []
@@ -597,6 +675,17 @@ export interface components {
        * @default []
        */
       senas_seen: components["schemas"]["SenaSeenView"][];
+      /**
+       * Step
+       * @default -1
+       */
+      step: number;
+      /**
+       * Steps
+       * @default []
+       */
+      steps: components["schemas"]["StepView"][];
+      base: components["schemas"]["GameView"] | null;
     };
     /** HTTPValidationError */
     HTTPValidationError: {
@@ -673,6 +762,35 @@ export interface components {
      * @enum {string}
      */
     RuleMode: "strict" | "interactive";
+    /** ScoringInfo */
+    ScoringInfo: {
+      /** Target */
+      target: number;
+      /** Min Target */
+      min_target: number;
+      /** Max Target */
+      max_target: number;
+      /** Max Points */
+      max_points: number;
+      /** Chains */
+      chains: components["schemas"]["ChainInfo"][];
+    };
+    /**
+     * ScoringSetup
+     * @description Partido length and canto points; anything left out plays as the reglamento.
+     */
+    ScoringSetup: {
+      /**
+       * Target
+       * @default 30
+       */
+      target?: number;
+      /**
+       * Chains
+       * @default []
+       */
+      chains?: components["schemas"]["ChainSetup"][];
+    };
     /** SeatSetup */
     SeatSetup: {
       /**
@@ -738,6 +856,8 @@ export interface components {
       token: string;
       /** Look */
       look?: number | null;
+      /** Since */
+      since?: number | null;
       sena: components["schemas"]["Sena"];
       spot: components["schemas"]["BodySpot"];
       /** Duration Ms */
@@ -766,12 +886,28 @@ export interface components {
       /** Duration Ms */
       duration_ms: number;
     };
+    /**
+     * StepView
+     * @description One move (an action or a deal) and what it set off, with the table right after it as
+     *     the viewer saw it (without señas, which are live).
+     */
+    StepView: {
+      /** Index */
+      index: number;
+      /** Seat */
+      seat: number | null;
+      /** Events */
+      events: components["schemas"]["EventView"][];
+      view: components["schemas"]["GameView"];
+    };
     /** TokenRequest */
     TokenRequest: {
       /** Token */
       token: string;
       /** Look */
       look?: number | null;
+      /** Since */
+      since?: number | null;
     };
     /** ValidationError */
     ValidationError: {
@@ -952,6 +1088,26 @@ export interface operations {
       };
     };
   };
+  scoring_info_api_games_scoring_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ScoringInfo"];
+        };
+      };
+    };
+  };
   new_game_api_games_post: {
     parameters: {
       query?: never;
@@ -1025,6 +1181,7 @@ export interface operations {
       query?: {
         token?: string | null;
         look?: number | null;
+        since?: number | null;
       };
       header?: never;
       path: {
