@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.access import require_access
 from app.config import get_settings
 from app.observability import RequestContextMiddleware, configure_logging, log
-from app.routers import access, bots, games, health, logs
+from app.routers import access, analytics, bots, games, health, logs
 from app.signing import state_key
 
 
@@ -39,7 +39,7 @@ def create_app() -> FastAPI:
     # Behind the password (app/access.py) when ACCESS_PASSWORD is set: all but these two.
     for module in (health, access):
         api.include_router(module.router)
-    for module in (bots, games, logs):
+    for module in (analytics, bots, games, logs):
         api.include_router(module.router, dependencies=[Depends(require_access)])
     app.include_router(api)
     return app

@@ -34,6 +34,12 @@ Tables are created on the first request, and there are no migrations:
 - A new nullable column, or a NOT NULL one with a constant default, is added automatically.
 - Any other schema change needs the table dropped. Locally, `make clean` does that.
 
+The analytics tables (`GET /api/analytics/win-rates`) are filled by an experiment, not by the app. Load them once into the branch the deploy uses, and again after the engine or the bots' card play changes:
+
+```sh
+DATABASE_URL='<the pooled URL>' make win-rates   # about 10 minutes; replaces the previous results
+```
+
 ## 2. Hosting (Vercel)
 
 1. **Import the repo** in Vercel (Add New → Project). Keep the repo root as the root directory: `vercel.json` sets everything else.

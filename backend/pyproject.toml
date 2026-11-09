@@ -24,7 +24,7 @@ package = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]
+pythonpath = [".", ".."]  # ..: experiments/
 
 [tool.ruff]
 line-length = 100

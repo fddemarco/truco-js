@@ -40,6 +40,27 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/analytics/win-rates": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Win Rates
+     * @description Hand strength for envido (by tanto) and truco (by truco ranks and card order), in
+     *     pica-pica and redonda: the win rate at each seat from the mano and their mean.
+     */
+    get: operations["win_rates_api_analytics_win_rates_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/bots/presets": {
     parameters: {
       query?: never;
@@ -482,6 +503,11 @@ export interface components {
        */
       bluff: number;
     };
+    /**
+     * Canto
+     * @enum {string}
+     */
+    Canto: "envido" | "truco";
     /** CardModel */
     CardModel: {
       /** Number */
@@ -1014,6 +1040,32 @@ export interface components {
       /** Context */
       ctx?: Record<string, never>;
     };
+    /** WinRatePage */
+    WinRatePage: {
+      /** Total */
+      total: number;
+      /** Items */
+      items: components["schemas"]["WinRateRead"][];
+    };
+    /** WinRateRead */
+    WinRateRead: {
+      format: components["schemas"]["Format"];
+      canto: components["schemas"]["Canto"];
+      /** Policy */
+      policy: string | null;
+      /** Tanto */
+      tanto: number | null;
+      /** Ranks */
+      ranks: number[] | null;
+      /** Strength */
+      strength: number;
+      /** By Seat */
+      by_seat: number[];
+      /** Samples */
+      samples: number;
+      /** Exact */
+      exact: boolean;
+    };
   };
   responses: never;
   parameters: never;
@@ -1111,6 +1163,47 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  win_rates_api_analytics_win_rates_get: {
+    parameters: {
+      query?: {
+        format?: components["schemas"]["Format"] | null;
+        canto?: components["schemas"]["Canto"] | null;
+        policy?: components["schemas"]["CardOrder"] | null;
+        /** @description three cards: only that hand's tanto and truco ranks */
+        hand?: string[];
+        tanto?: number | null;
+        min_strength?: number | null;
+        max_strength?: number | null;
+        descending?: boolean;
+        limit?: number;
+        offset?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["WinRatePage"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
       };
     };
   };

@@ -13,6 +13,7 @@ UI ──/api (vite proxy | Vercel rewrite)──▶ FastAPI ──▶ SQLite da
                              │
                              ├─ app/truco/   pure-Python game engine
                              ├─ app/bots/    configurable local bot strategies (strict + interactive)
+                             ├─ app/routers/analytics.py  read-only analytical tables (win rates)
                              └─ app/games/   game sessions (stateless: loaded and saved per request): seats, tokens, bots, per-seat views, the deal
 ```
 
@@ -23,6 +24,7 @@ UI ──/api (vite proxy | Vercel rewrite)──▶ FastAPI ──▶ SQLite da
 - **The rules are the spec.** `docs/reglamento-truco-sepica.md` is the official Se Pica TSA reglamento (Spanish). Engine code cites rule numbers (e.g. `(15.1)`). Check the rule before changing behaviour.
 - `backend/app/truco/` has no web or DB dependencies, so the API and the future RL bot share it. See `backend/CLAUDE.md`.
 - The UI shows the reglamento in Spanish and English (`frontend/src/lib/rules/`). Game terms (mano, ronda, envido, truco, pica-pica, parda, quiero, irse al mazo, malas/buenas, señas...) stay in Spanish in every language, in UI copy too.
+- **Experiments** (`experiments/`) compute analytical tables offline with the engine and write them to the app's database (SQLite, or `DATABASE_URL`); the API only reads them. `experiments/win_rates.py`: hand strength for pica-pica (exact) and redonda (3 v 3, Monte Carlo), compressed to what decides each canto with local bots: envido by tanto, truco by the hand's truco ranks (502 patterns) and the card order every player uses; each row has the win rate at every seat from the mano and their mean (`strength`). About 4k rows in the `win_rate` table behind `GET /api/analytics/win-rates`. Its tests live in `backend/tests/` (`pythonpath` includes the repo root).
 - Everything under `data/` is local state and gitignored. `make clean` resets it.
 - **Art** (avatars, señas, cards) is made with an image model from `docs/art-prompts.md`. Source images live in `assets/` (gitignored, local). Avatar galleries are cut out and aligned by `tools/art/avatars.py`, a standalone uv script, which also edits señas the model can't draw (mirror, lift brows, patch, Inkscape SVG overlays). Final avatars live flat in `assets/avatars/<character>/` (base, portrait, 8 señas) with no dependencies between them; work files go to `assets/work/`. `pnpm import-art` writes the committed WebPs to `frontend/static/`. The workflow and the review bar for señas are in `docs/art-prompts.md`.
 
@@ -41,13 +43,14 @@ UI ──/api (vite proxy | Vercel rewrite)──▶ FastAPI ──▶ SQLite da
 | Import approved art | `cd frontend && pnpm import-art [--partial]` |
 | Regenerate `requirements.txt` (Vercel) after `uv add`/`uv remove` | `make gen-reqs` (`make lint` fails while it's stale) |
 | Run the backend tests against Postgres | `cd backend && TEST_DATABASE_URL=postgresql://... uv run pytest` (drops its tables) |
+| Compute the win-rate tables (~10 min) | `make win-rates` (`ARGS="--format redonda --policy random"`, `--deals`, `--skip-envido`...; `DATABASE_URL=... make win-rates` for Neon) |
 | Read the logs (backend + frontend, JSON lines) | `tail -f data/logs/app.jsonl` (`LOG_LEVEL=DEBUG` adds polling; browser debug entries such as beats stay in `window.__trucoLogs`) |
 
 Run Python through uv (`cd backend && uv run ...`) and JS through pnpm (`cd frontend && pnpm ...`). Never use pip or npm.
 
 ## Deploy (Vercel)
 
-Step-by-step guide for people: `docs/deployment.md` (keep it in sync with this section). One Vercel project from the repo root (`vercel.json`): the SPA is built from `frontend/` to static files, and `api/index.py` serves the FastAPI app as a Python function for every `/api/*` request. Python dependencies come from the root `requirements.txt` (exported from `backend/uv.lock`), the Python version from `.python-version`. The database is the Neon project linked in `.neon`, declared in `neon.ts` (Postgres only, free tier; `neon deploy` applies it). Env vars in Vercel (Preview and Production): `DATABASE_URL` (the Neon branch's pooled Postgres URL), `STATE_KEY` (required: signs the stored game state, `openssl rand -base64 32`), `ACCESS_PASSWORD` (the app's shared password: Vercel's free plan has no password protection, see `backend/app/access.py`), `LOG_FILE=false`, `LOG_FORMAT=json`. Never point `TEST_DATABASE_URL` at the `production` branch: the suite drops its tables (use `neon checkout dev --create`). Tables are created on first use; there are no migrations, so a new NOT NULL column without a constant default needs its table dropped (locally: `make clean`).
+Step-by-step guide for people: `docs/deployment.md` (keep it in sync with this section). One Vercel project from the repo root (`vercel.json`): the SPA is built from `frontend/` to static files, and `api/index.py` serves the FastAPI app as a Python function for every `/api/*` request. Python dependencies come from the root `requirements.txt` (exported from `backend/uv.lock`), the Python version from `.python-version`. The database is the Neon project linked in `.neon`, declared in `neon.ts` (Postgres only, free tier; `neon deploy` applies it). Env vars in Vercel (Preview and Production): `DATABASE_URL` (the Neon branch's pooled Postgres URL), `STATE_KEY` (required: signs the stored game state, `openssl rand -base64 32`), `ACCESS_PASSWORD` (the app's shared password: Vercel's free plan has no password protection, see `backend/app/access.py`), `LOG_FILE=false`, `LOG_FORMAT=json`. The analytics tables come from `DATABASE_URL=<pooled URL> make win-rates`, run by hand. Never point `TEST_DATABASE_URL` at the `production` branch: the suite drops its tables (use `neon checkout dev --create`). Tables are created on first use; there are no migrations, so a new NOT NULL column without a constant default needs its table dropped (locally: `make clean`).
 
 ## Rules
 

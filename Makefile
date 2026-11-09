@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install dev dev-api dev-web test test-api test-web lint fmt gen-api gen-reqs build clean
+.PHONY: help install dev dev-api dev-web test test-api test-web lint fmt gen-api gen-reqs build clean win-rates
 
 API_PORT ?= 8000
 # 0.0.0.0 lets other machines on the network play (online multiplayer)
@@ -35,13 +35,13 @@ test-web:
 	cd frontend && pnpm test
 
 lint: ## Lint + typecheck everything (and check requirements.txt is current)
-	cd backend && uv run ruff check . ../tools ../api && uv run ruff format --check . ../tools ../api
+	cd backend && uv run ruff check . ../tools ../api ../experiments && uv run ruff format --check . ../tools ../api ../experiments
 	@cd backend && $(EXPORT_REQS) | diff -q - ../requirements.txt >/dev/null \
 		|| { echo "requirements.txt is stale: run make gen-reqs"; exit 1; }
 	cd frontend && pnpm lint
 
 fmt: ## Format everything
-	cd backend && uv run ruff check --fix . ../tools ../api && uv run ruff format . ../tools ../api
+	cd backend && uv run ruff check --fix . ../tools ../api ../experiments && uv run ruff format . ../tools ../api ../experiments
 	cd frontend && pnpm format
 
 gen-api: ## Regenerate the typed frontend API client from FastAPI's OpenAPI schema
@@ -50,6 +50,9 @@ gen-api: ## Regenerate the typed frontend API client from FastAPI's OpenAPI sche
 
 gen-reqs: ## Regenerate requirements.txt (Vercel) from backend/uv.lock, after uv add/remove
 	cd backend && $(EXPORT_REQS) -o ../requirements.txt
+
+win-rates: ## Hand strength (pica-pica exact, redonda Monte Carlo) into the database (ARGS="--format redonda --policy random")
+	cd backend && uv run python ../experiments/win_rates.py $(ARGS)
 
 build: ## Production build of the frontend
 	cd frontend && pnpm build
