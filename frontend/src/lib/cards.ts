@@ -2,14 +2,19 @@
  * Card art in static/ (imported with `pnpm import-art`; suit icons from `pnpm gen-cards`). Suits match the backend's `Suit` values.
  * Card names are game terms, so they stay in Spanish in every locale.
  */
+
+import { artUrl } from "$lib/art";
 export type Suit = "espada" | "basto" | "oro" | "copa";
 
 export const SUITS: Suit[] = ["espada", "basto", "oro", "copa"];
 /** Every number with art: the full 48-card Spanish deck. */
 export const NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
 
-export const CARD_BACK = "/cards/dorso.webp";
-export const COMODINES = ["/cards/comodin-1.webp", "/cards/comodin-2.webp"] as const;
+export const CARD_BACK = artUrl("/cards/dorso.webp");
+export const COMODINES = [
+  artUrl("/cards/comodin-1.webp"),
+  artUrl("/cards/comodin-2.webp"),
+] as const;
 export const LOGO = "/logo.svg";
 
 const PLURAL: Record<Suit, string> = {
@@ -20,7 +25,7 @@ const PLURAL: Record<Suit, string> = {
 };
 
 export function cardSrc(number: number, suit: Suit): string {
-  return `/cards/${number}-${suit}.webp`;
+  return artUrl(`/cards/${number}-${suit}.webp`);
 }
 
 export function suitSrc(suit: Suit): string {

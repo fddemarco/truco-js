@@ -18,6 +18,9 @@ coverage/
 
 # Env / editors
 .env
+.env.*
+!.env.example
+.vercel/
 .DS_Store
 .idea/
 .vscode/*

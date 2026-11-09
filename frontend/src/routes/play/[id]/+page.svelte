@@ -8,12 +8,19 @@
   import { t } from "$lib/i18n.svelte";
   import { play } from "$lib/audio.svelte";
   import { profile } from "$lib/profile.svelte";
+  import { preloadAvatars } from "$lib/avatar/preload";
 
   // The table: networking, beats and the deal live in TableSession; this page lays it out
   // (lobby, seat switcher, hot-seat curtain).
   const game = new TableSession(page.params.id ?? "", () => goto("/", { replaceState: true }));
   let joinName = $state(profile.name);
   onMount(() => game.start());
+
+  // Fetch every seated character's faces and señas while the lobby fills and the deck is
+  // shuffled, so the first seña at the table is already decoded.
+  $effect(() => {
+    if (game.view) preloadAvatars(game.view.seats.map((s) => s.character));
+  });
 
   // The table shuffles while it waits to deal (the server deals at `deal_at`).
   const shuffleAt = $derived(game.plan?.endsAt ?? null);

@@ -1,12 +1,13 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import {
     avatarSrc,
-    avatarVariants,
     characterFor,
     type BodySpot,
     type Character,
     type Sena,
   } from "$lib/avatar/avatar";
+  import { isDecoded, loadImage, preloadAvatars } from "$lib/avatar/preload";
 
   interface Props {
     /** The character, or a seat index (seat i → the i-th character). */
@@ -26,19 +27,34 @@
   const base = $derived(avatarSrc(id));
   const wanted = $derived(avatarSrc(id, sena, spot));
 
-  // Señas last about half a second: load every variant up front so none flashes blank.
-  $effect(() => {
-    for (const s of avatarVariants(id)) new Image().src = s;
-  });
+  // The play page preloads the seated characters already; this covers any other use.
+  $effect(() => preloadAvatars([id]));
 
   // A missing seña image shows the neutral face; a missing neutral face shows the initial.
   let failedSrcs = $state<string[]>([]);
-  const src = $derived(failedSrcs.includes(wanted) ? base : wanted);
+  const target = $derived(failedSrcs.includes(wanted) ? base : wanted);
+
+  // The one <img> keeps showing the current face until the next one is decoded, then swaps.
+  let src = $state(untrack(() => target));
+  $effect(() => {
+    const next = target;
+    if (next === untrack(() => src) || isDecoded(next)) {
+      src = next;
+      return;
+    }
+    let live = true;
+    loadImage(next).then(
+      () => live && (src = next),
+      () => live && fail(next),
+    );
+    return () => (live = false);
+  });
   const failed = $derived(failedSrcs.includes(src));
 
-  function onError() {
-    failedSrcs = [...failedSrcs, src];
-    console.error(`Could not load avatar image ${src}`);
+  function fail(bad: string) {
+    if (failedSrcs.includes(bad)) return;
+    failedSrcs = [...failedSrcs, bad];
+    console.error(`Could not load avatar image ${bad}`);
   }
 </script>
 
@@ -50,30 +66,15 @@
       {label.trim().charAt(0).toUpperCase()}
     </div>
   {:else}
-    {#key src}
-      <img
-        {src}
-        alt=""
-        width="512"
-        height="512"
-        draggable="false"
-        data-variant={sena ? "sena" : "base"}
-        onerror={onError}
-        class="avatar h-full w-full select-none object-contain"
-      />
-    {/key}
+    <img
+      {src}
+      alt=""
+      width="512"
+      height="512"
+      draggable="false"
+      data-variant={src === base ? "base" : "sena"}
+      onerror={() => fail(src)}
+      class="h-full w-full select-none object-contain"
+    />
   {/if}
 </div>
-
-<style>
-  @media (prefers-reduced-motion: no-preference) {
-    .avatar {
-      animation: sena-in 0.12s ease-out;
-    }
-  }
-  @keyframes sena-in {
-    from {
-      opacity: 0.6;
-    }
-  }
-</style>

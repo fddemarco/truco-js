@@ -189,6 +189,45 @@ describe("GameTable", () => {
     expect(onSena).not.toHaveBeenCalled();
   });
 
+  it("shows the viewer's seña on their face while its key is held, not the server's copy", async () => {
+    const now = Date.now();
+    const sena = (seat: number) => ({
+      seat,
+      sena: "sena_12" as const,
+      spot: "nariz" as const,
+      target: null,
+      start_ms: now - 100,
+      duration_ms: 5000,
+    });
+    const { onSena } = setup(
+      makeView({ mode: "interactive", server_ms: now, senas: [sena(0), sena(2)] }),
+    );
+    const avatar = (seat: number) =>
+      screen.getByTestId(`seat-${seat}`).querySelector("img[data-variant]")?.getAttribute("src");
+    // The server's copy of the viewer's own seña is not replayed; a teammate beside is unseen.
+    expect(avatar(0)).toBe(avatarSrc(characterFor(0)));
+    expect(avatar(2)).toBe(avatarSrc(characterFor(2)));
+
+    await fireEvent.keyDown(window, { code: "Digit8" });
+    expect(avatar(0)).toBe(avatarSrc(characterFor(0), "sena_12"));
+    expect(onSena).not.toHaveBeenCalled();
+    await fireEvent.keyUp(window, { code: "Digit8" });
+    expect(avatar(0)).toBe(avatarSrc(characterFor(0)));
+    expect(onSena).toHaveBeenCalledOnce();
+  });
+
+  it("drops a held seña when the window loses focus, without sending it", async () => {
+    const { onSena } = setup(makeView({ mode: "interactive" }));
+    const avatar = () =>
+      screen.getByTestId("seat-0").querySelector("img[data-variant]")?.getAttribute("src");
+    await fireEvent.keyDown(window, { code: "Digit8" });
+    expect(avatar()).toBe(avatarSrc(characterFor(0), "sena_12"));
+    await fireEvent.blur(window);
+    expect(avatar()).toBe(avatarSrc(characterFor(0)));
+    await fireEvent.keyUp(window, { code: "Digit8" });
+    expect(onSena).not.toHaveBeenCalled();
+  });
+
   it("only shows the seña of the player across in focus, and pans with the arrows", async () => {
     const now = Date.now();
     const sena = (seat: number) => ({

@@ -10,7 +10,8 @@ browser ──▶ Vercel ─┬─ /*      static SPA (frontend/build)
 `vercel.json` holds the Vercel side:
 - the build: `pnpm build` in `frontend/`;
 - the Python function: `api/index.py`, which bundles `backend/app/`;
-- the rewrites: `/api/*` goes to the function, and everything else falls back to `index.html`.
+- the rewrites: `/api/*` goes to the function, and everything else falls back to `index.html`;
+- the headers: `/avatars/*` and `/cards/*` are cached for a year. Their URLs carry a hash of the art (`?v=`), so new art from `pnpm import-art` reaches players on the next deploy.
 
 Python dependencies come from the root `requirements.txt` (`make gen-reqs`), and the Python version from `.python-version`.
 

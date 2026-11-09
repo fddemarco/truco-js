@@ -181,8 +181,11 @@
   });
 
   // Señas are only seen face to face: the player across in focus (14.4). Spectators see all.
+  // The viewer's own face shows the seña while its key is held, not the server's copy, which
+  // only arrives on release and would replay it.
   const senas = $derived(activeSenas(view.senas, now + offset));
   function senaOf(seat: number) {
+    if (view.me !== null && seat === view.me) return making ?? undefined;
     if (view.me !== null && seat !== focus) return undefined;
     return senas.get(seat);
   }
@@ -339,6 +342,13 @@
   const timedSenas = $derived(view.mode === "interactive" && view.seats.length > 2);
   // Interactive señas: hold a key, release to send with the held time as duration.
   const held = new Map<string, number>();
+  // The seña whose key is down, shown on the viewer's own face until it is released.
+  let making = $state<{ code: string; sena: Sena; spot: BodySpot } | null>(null);
+  function release() {
+    held.clear();
+    making = null;
+    keymapOpen = false;
+  }
   const keys = $derived(bindings());
   let settingsTab = $state<GameSettingsTab | null>(null);
   // Tab, held: the keys in use, over the table.
@@ -384,15 +394,18 @@
       return;
     }
     if (!onSena || !timedSenas || e.repeat) return;
-    if (senaForCode(e.code, keys)) {
+    const sena = senaForCode(e.code, keys);
+    if (sena) {
       e.preventDefault();
       held.set(e.code, Date.now());
+      making = { code: e.code, ...sena };
     }
   }
   function keyup(e: KeyboardEvent) {
     if (e.code === "Tab") keymapOpen = false;
     const start = held.get(e.code);
     held.delete(e.code);
+    if (making?.code === e.code) making = null;
     const sena = senaForCode(e.code, keys);
     if (start === undefined || !sena || !onSena) return;
     onSena(sena.sena, sena.spot, Math.min(5000, Math.max(150, Date.now() - start)));
@@ -406,7 +419,7 @@
   };
 </script>
 
-<svelte:window onkeydown={keydown} onkeyup={keyup} onblur={() => (keymapOpen = false)} />
+<svelte:window onkeydown={keydown} onkeyup={keyup} onblur={release} />
 <svelte:document onfullscreenchange={fullscreenChange} />
 
 {#snippet stack(seat: number, from: "far" | "near" | "me")}
@@ -622,6 +635,7 @@
                   ownPie={view.seats[bottom].team === (myTeam ?? 0)}
                   turn={view.to_act === bottom && !busy}
                   acting={acting(bottom)}
+                  sena={senaOf(bottom)}
                 />
               </div>
             </div>

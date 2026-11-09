@@ -24,6 +24,8 @@ src/
     profile.svelte.ts    this device's player: name, character, music/sfx volume, mute, key layout + custom keys, new-game scoring (localStorage); `bindings()`
     audio.svelte.ts      music + sound effects on <audio> (static/audio/), volumes from the profile, sfxFor(beat kind), playlists by page (playlistFor: menu, settings, game; the layout switches them)
     log.ts               structured logger: ring buffer (window.__trucoLogs), console in dev, batches to POST /api/logs
+    art.ts               artUrl: every static/avatars and static/cards URL carries the art's hash (?v=, from vite.config.ts), since vercel.json caches them for a year (immutable); never write those paths without it
+    avatar/preload.ts    fetches and decodes avatar images ahead of time and holds them (the play page preloads the seated characters; Avatar swaps only to decoded images, so señas never flash)
     avatar/avatar.ts     six seat characters + names, señas with their meaning (SENA_NAMES, Anexo C.2) + image paths (Sena/BodySpot match the backend)
     i18n.svelte.ts       locale state (es/en, persisted) + `t(key)` UI strings
     rules/               SECTIONS + es/<slug>.md and en/<slug>.md reglamento pages

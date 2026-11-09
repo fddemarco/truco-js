@@ -7,6 +7,8 @@
  * Seña and spot values match the backend's `Sena` and `BodySpot` enums.
  */
 
+import { artUrl } from "$lib/art";
+
 export type Sena =
   "sena_01" | "sena_02" | "sena_03" | "sena_04" | "sena_05" | "sena_06" | "sena_07" | "sena_12";
 
@@ -90,15 +92,15 @@ export function variantFor(sena?: Sena, spot?: BodySpot): string {
 }
 
 export function avatarSrc(character: Character, sena?: Sena, spot?: BodySpot): string {
-  return `/avatars/${character}/${variantFor(sena, spot)}.webp`;
+  return artUrl(`/avatars/${character}/${variantFor(sena, spot)}.webp`);
 }
 
 /** The full character (not cropped to the head frame), for choosing an avatar. */
 export function avatarPortrait(character: Character): string {
-  return `/avatars/${character}/portrait.webp`;
+  return artUrl(`/avatars/${character}/portrait.webp`);
 }
 
 /** All of a character's images, for preloading so a short seña never flashes blank. */
 export function avatarVariants(character: Character): string[] {
-  return VARIANTS.map((v) => `/avatars/${character}/${v}.webp`);
+  return VARIANTS.map((v) => artUrl(`/avatars/${character}/${v}.webp`));
 }

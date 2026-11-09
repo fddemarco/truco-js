@@ -1,0 +1,22 @@
+# Tiburon's master: see tools/art/masters.py. Coordinates are in the 512 frame
+# (`uv run tools/art/masters.py grid tiburon` draws them over the base).
+
+# Face parts, cut out of the base and traced on their own. A part is every non-skin pixel in
+# its shapes (box, polygon, ellipse, ring; `minus` subtracts), except what `front` keeps.
+# The señas move brow-L/R and eye-L/R and replace mouth; other parts stay as they are.
+[parts]
+brow-L = { box = [126, 224, 250, 250] }
+brow-R = { box = [282, 196, 398, 243] }
+eye-L = { box = [122, 256, 246, 306] }
+eye-R = { box = [282, 245, 404, 292] }
+blush = { box = [[136, 304, 170, 330], [362, 290, 394, 313]] }
+mouth = { box = [238, 314, 360, 366] }
+
+# What sits over the face parts and stays in front of them when they move.
+[front.strand]
+polygon = [[351, 190], [365, 190], [378, 210], [388, 232], [398, 248], [412, 261], [432, 269],
+  [445, 273], [445, 284], [420, 286], [403, 281], [389, 270], [376, 251], [365, 227], [356, 207]]
+
+[senas]
+line = 3.5          # the drawing's line width
+mouth_at = [282, 336]

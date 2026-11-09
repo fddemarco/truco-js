@@ -44,4 +44,56 @@ describe("Avatar", () => {
     expect(avatar.textContent?.trim()).toBe("A");
     expect(log).toHaveBeenCalledWith("Could not load avatar image /avatars/maniaca/base.webp");
   });
+
+  // These use characters no other test renders: decoded images are cached for the page.
+  it("keeps the current face until the seña image is decoded, so it never flashes blank", async () => {
+    let decoded!: () => void;
+    vi.stubGlobal(
+      "Image",
+      class extends Image {
+        decode = () =>
+          this.src.endsWith("/calculadora/sena_04.webp")
+            ? new Promise<void>((resolve) => (decoded = resolve))
+            : Promise.resolve();
+      },
+    );
+    const { rerender } = render(Avatar, { character: 4, label: "Jugador 5" });
+
+    await rerender({
+      character: 4,
+      label: "Jugador 5",
+      sena: "sena_04",
+      spot: "comisura_izquierda",
+    });
+    expect(img("Jugador 5")?.getAttribute("src")).toBe("/avatars/calculadora/base.webp");
+
+    decoded();
+    await vi.waitFor(() =>
+      expect(img("Jugador 5")?.getAttribute("src")).toBe("/avatars/calculadora/sena_04.webp"),
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it("stays on the neutral face and logs when a seña image cannot be decoded", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal(
+      "Image",
+      class extends Image {
+        decode = () =>
+          this.src.endsWith("/fanfarron/sena_06.webp")
+            ? Promise.reject(new Error("bad"))
+            : Promise.resolve();
+      },
+    );
+    const { rerender } = render(Avatar, { character: 5, label: "Jugador 6" });
+    await rerender({ character: 5, label: "Jugador 6", sena: "sena_06", spot: "labios" });
+
+    await vi.waitFor(() =>
+      expect(log).toHaveBeenCalledWith(
+        "Could not load avatar image /avatars/fanfarron/sena_06.webp",
+      ),
+    );
+    expect(img("Jugador 6")?.getAttribute("src")).toBe("/avatars/fanfarron/base.webp");
+    vi.unstubAllGlobals();
+  });
 });
