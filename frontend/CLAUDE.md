@@ -53,7 +53,7 @@ static/
 - Card, avatar and seña art is raster, made with an image model from `docs/art-prompts.md`: avatar galleries are cut out and aligned by `tools/art/avatars.py`, final sources go in `../assets/avatars/<character>/` and `../assets/cards/` (workflow and review bar in `docs/art-prompts.md`), then run `pnpm import-art`; never edit the WebPs in `static/` by hand. Suit icons and small UI art are generated: edit `scripts/generate-cards.mjs` and run `pnpm gen-cards`. Use paths from `$lib/cards` and `$lib/avatar/avatar` rather than hard-coding them.
 - Tests cover behaviour (logic, rendering, error states), not configuration or content: don't write tests that only check that files, assets or translations exist.
 - Style with Tailwind utilities and the shared classes in `app.css`. Screens that belong with the game (new game setup, in-game dialogs, key map) use `.theme-table` (remaps white/slate/indigo to the dark wood and amber look, so shared components follow) with `.table-panel` or `.table-glass`; don't rely on `indigo` for team colours inside it.
-- In dev, the Vite server proxies `/api` to `localhost:8000`.
+- In dev, the Vite server proxies `/api` to `localhost:8000` (`API_PORT`), or to `BACKEND_URL` under `vercel dev` (the service binding in `vercel.json`).
 - Log with `log.info("area.what", { ...flat fields })` from `$lib/log`, never sentences. Info and above reach the backend log; API calls are traced with `X-Request-ID` by the client middleware. Use `localStorage["log:level"] = "debug"` for more.
 
 ## Commands (from frontend/)

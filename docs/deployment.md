@@ -10,7 +10,7 @@ browser ──▶ Vercel ─┬─ /*      service "frontend": static SPA (front
 `vercel.json` holds the Vercel side, as one project with two [services](https://vercel.com/docs/services):
 - `frontend`: root `frontend/`, `pnpm build` to `build/`, and its own rewrite so client routes fall back to `index.html`;
 - `backend`: root `backend/`, the FastAPI preset with `app.main:app` as the entrypoint (30 s max per request);
-- the top-level rewrites: `/api/*` goes to `backend`, which sees the full path (`/api/...`, as FastAPI mounts it), and everything else goes to `frontend`. Both are public, and neither calls the other server-side, so there are no service bindings;
+- the top-level rewrites: `/api/*` goes to `backend`, which sees the full path (`/api/...`, as FastAPI mounts it), and everything else goes to `frontend`. Both are public, and neither calls the other server-side. The frontend declares one service binding, `BACKEND_URL`, used only by `vercel dev`: there the Vite dev server receives `/api` requests and proxies them to the backend's port;
 - the headers: `/avatars/*` and `/cards/*` are cached for a year. Their URLs carry a hash of the art (`?v=`), so new art from `pnpm import-art` reaches players on the next deploy.
 
 Python dependencies come from `backend/pyproject.toml` and `backend/uv.lock`, and the Python version from `backend/.python-version`.

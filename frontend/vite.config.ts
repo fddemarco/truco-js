@@ -25,7 +25,11 @@ export default defineConfig(({ mode }) => ({
   define: { __ART_VERSION__: JSON.stringify(mode === "test" ? "" : artVersion()) },
   plugins: [tailwindcss(), sveltekit(), svelteTesting()],
   server: {
-    proxy: { "/api": `http://localhost:${process.env.API_PORT ?? 8000}` },
+    // `make dev` runs the API on API_PORT; `vercel dev` starts it on a random port and
+    // hands it over through the frontend's service binding (vercel.json).
+    proxy: {
+      "/api": process.env.BACKEND_URL ?? `http://localhost:${process.env.API_PORT ?? 8000}`,
+    },
   },
   test: {
     environment: "jsdom",

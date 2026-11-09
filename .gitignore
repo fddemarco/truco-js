@@ -32,3 +32,4 @@ coverage/
 # Source art from the image model (imported into frontend/static/ with `pnpm import-art`)
 /assets/
 .neon
+.vercel
