@@ -19,7 +19,7 @@ The API is stateless (see `backend/CLAUDE.md`). Nothing is kept in memory betwee
 
 ## 1. Database (Neon)
 
-The repo is linked to the Neon project `muddy-morning-01990588` (branch `production`) through `.neon`, which is gitignored. `neon.ts` declares what the project needs: Postgres only, which every Neon branch already has, plus a policy that makes new branches expire after 7 days.
+The repo is linked to the Neon project through `.neon`, which is gitignored. `neon.ts` declares what the project needs: Postgres only, which every Neon branch already has, plus a policy that makes new branches expire after 7 days.
 
 ```sh
 pnpm add -g neon@latest   # the Neon CLI
