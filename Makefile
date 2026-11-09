@@ -1,13 +1,11 @@
 .DEFAULT_GOAL := help
-.PHONY: help install dev dev-api dev-web test test-api test-web lint fmt gen-api gen-reqs build clean win-rates
+.PHONY: help install dev dev-api dev-web test test-api test-web lint fmt gen-api build clean win-rates
 
 API_PORT ?= 8000
 # 0.0.0.0 lets other machines on the network play (online multiplayer)
 HOST ?= 127.0.0.1
 WEB_PORT ?= 5173
 export API_PORT
-# The API's production dependencies for Vercel's Python runtime (it reads requirements.txt).
-EXPORT_REQS = uv export --no-dev --no-hashes --no-emit-project --no-header -q
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -34,22 +32,17 @@ test-api:
 test-web:
 	cd frontend && pnpm test
 
-lint: ## Lint + typecheck everything (and check requirements.txt is current)
-	cd backend && uv run ruff check . ../tools ../api ../experiments && uv run ruff format --check . ../tools ../api ../experiments
-	@cd backend && $(EXPORT_REQS) | diff -q - ../requirements.txt >/dev/null \
-		|| { echo "requirements.txt is stale: run make gen-reqs"; exit 1; }
+lint: ## Lint + typecheck everything
+	cd backend && uv run ruff check . ../tools ../experiments && uv run ruff format --check . ../tools ../experiments
 	cd frontend && pnpm lint
 
 fmt: ## Format everything
-	cd backend && uv run ruff check --fix . ../tools ../api ../experiments && uv run ruff format . ../tools ../api ../experiments
+	cd backend && uv run ruff check --fix . ../tools ../experiments && uv run ruff format . ../tools ../experiments
 	cd frontend && pnpm format
 
 gen-api: ## Regenerate the typed frontend API client from FastAPI's OpenAPI schema
 	cd backend && uv run python -m scripts.export_openapi
 	cd frontend && pnpm gen-api
-
-gen-reqs: ## Regenerate requirements.txt (Vercel) from backend/uv.lock, after uv add/remove
-	cd backend && $(EXPORT_REQS) -o ../requirements.txt
 
 win-rates: ## Hand strength (pica-pica exact, redonda Monte Carlo) into the database (ARGS="--format redonda --policy random")
 	cd backend && uv run python ../experiments/win_rates.py $(ARGS)

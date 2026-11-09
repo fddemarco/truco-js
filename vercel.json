@@ -1,23 +1,38 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": null,
-  "installCommand": "corepack enable && cd frontend && pnpm install --frozen-lockfile",
-  "buildCommand": "cd frontend && pnpm build",
-  "outputDirectory": "frontend/build",
-  "functions": {
-    "api/index.py": {
-      "includeFiles": "backend/app/**",
-      "maxDuration": 30
+  "services": {
+    "backend": {
+      "root": "backend",
+      "framework": "fastapi",
+      "entrypoint": "app.main:app",
+      "functions": {
+        "app/main.py": {
+          "maxDuration": 30
+        }
+      }
+    },
+    "frontend": {
+      "root": "frontend",
+      "framework": "vite",
+      "installCommand": "corepack enable && pnpm install --frozen-lockfile",
+      "buildCommand": "pnpm build",
+      "outputDirectory": "build",
+      "rewrites": [
+        {
+          "source": "/(.*)",
+          "destination": "/index.html"
+        }
+      ]
     }
   },
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/api/index"
+      "destination": { "service": "backend" }
     },
     {
       "source": "/(.*)",
-      "destination": "/index.html"
+      "destination": { "service": "frontend" }
     }
   ],
   "headers": [

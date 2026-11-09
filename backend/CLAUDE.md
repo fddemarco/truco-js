@@ -2,7 +2,7 @@
 
 ```
 app/
-  main.py        app factory; routers mounted under /api (served on Vercel by ../api/index.py)
+  main.py        app factory; routers mounted under /api (the `backend` service on Vercel, see ../vercel.json)
   config.py      Settings (env / ../.env): DATA_DIR, DATABASE_URL, STATE_KEY, ACCESS_PASSWORD, TRUST_PROXY, CORS_ORIGINS, logging
   access.py      the access gate: one shared password (ACCESS_PASSWORD) → a signed 30-day cookie; `require_access` guards every router but health and access
   db.py          engine (SQLite in DATA_DIR, or Postgres from DATABASE_URL; tables created on first use) + get_session dependency

@@ -3,17 +3,17 @@
 The app runs on free tiers. The database is **Neon** Postgres. **Vercel** serves both the SPA (static files) and the API (FastAPI as a Python function). Since Vercel's free plan has no password protection, the app has its own password gate.
 
 ```
-browser ──▶ Vercel ─┬─ /*      static SPA (frontend/build)
-                    └─ /api/*  api/index.py → FastAPI (backend/app) ──▶ Neon Postgres
+browser ──▶ Vercel ─┬─ /*      service "frontend": static SPA (frontend/build)
+                    └─ /api/*  service "backend": FastAPI (backend/app/main.py) ──▶ Neon Postgres
 ```
 
-`vercel.json` holds the Vercel side:
-- the build: `pnpm build` in `frontend/`;
-- the Python function: `api/index.py`, which bundles `backend/app/`;
-- the rewrites: `/api/*` goes to the function, and everything else falls back to `index.html`;
+`vercel.json` holds the Vercel side, as one project with two [services](https://vercel.com/docs/services):
+- `frontend`: root `frontend/`, `pnpm build` to `build/`, and its own rewrite so client routes fall back to `index.html`;
+- `backend`: root `backend/`, the FastAPI preset with `app.main:app` as the entrypoint (30 s max per request);
+- the top-level rewrites: `/api/*` goes to `backend`, which sees the full path (`/api/...`, as FastAPI mounts it), and everything else goes to `frontend`. Both are public, and neither calls the other server-side, so there are no service bindings;
 - the headers: `/avatars/*` and `/cards/*` are cached for a year. Their URLs carry a hash of the art (`?v=`), so new art from `pnpm import-art` reaches players on the next deploy.
 
-Python dependencies come from the root `requirements.txt` (`make gen-reqs`), and the Python version from `.python-version`.
+Python dependencies come from `backend/pyproject.toml` and `backend/uv.lock`, and the Python version from `backend/.python-version`.
 
 The API is stateless (see `backend/CLAUDE.md`). Nothing is kept in memory between requests, and clients poll, so each request can run on a fresh serverless instance.
 
@@ -57,7 +57,7 @@ DATABASE_URL='<the pooled URL>' make win-rates   # about 10 minutes; replaces th
 3. **Deploy:**
    - Every push to a branch other than the production branch (`main` by default) makes a **preview** deployment with its own URL.
    - A push to `main` deploys **production**.
-   - With the Vercel CLI: `vercel deploy` makes a preview, and `vercel deploy --prod` deploys production.
+   - With the Vercel CLI: `vercel deploy` makes a preview, and `vercel deploy --prod` deploys production. `vercel dev` runs both services together locally.
 4. **Check it:**
    - `https://<deployment>/api/health` returns `{"status": "ok"}`.
    - Opening the site shows the password screen.
@@ -106,4 +106,4 @@ The free plan keeps them only for a short time, so look soon after a problem. Lo
 - **The API fails at startup with "STATE_KEY must be set":** `STATE_KEY` is missing for that environment. Preview and Production each need their own copy.
 - **Everything answers 401:** the browser hasn't entered the password, or the password or `STATE_KEY` changed. Reload the page to get the password screen.
 - **Connection errors under load:** check that `DATABASE_URL` is the pooled (`-pooler`) one.
-- **A deploy fails on Python dependencies:** `requirements.txt` is stale. Run `make gen-reqs` and commit it; `make lint` catches this.
+- **A deploy fails on Python dependencies:** `backend/uv.lock` is out of date with `pyproject.toml`. Run `cd backend && uv lock` and commit it.

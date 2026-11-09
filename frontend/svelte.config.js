@@ -6,7 +6,7 @@ export default {
   preprocess: vitePreprocess(),
   kit: {
     // SPA mode: a static site whose routes all fall back to index.html. /api is FastAPI
-    // (the Vite proxy locally, a Vercel function in production; see vercel.json).
+    // (the Vite proxy locally, the `backend` Vercel service in production; see vercel.json).
     adapter: adapter({ fallback: "index.html" }),
   },
 };

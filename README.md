@@ -25,11 +25,10 @@ make test           # pytest + vitest
 make lint           # ruff + typecheck + prettier
 make gen-api        # regenerate frontend API types after backend changes
 make clean          # wipe local data (SQLite)
-make gen-reqs       # regenerate requirements.txt (Vercel) after changing backend deps
 ```
 
 ## Deploy
-Free tiers only: Neon Postgres and Vercel (static SPA + FastAPI as a Python function), with the app's own password gate (`ACCESS_PASSWORD`). Setup, environment variables and checks: [docs/deployment.md](docs/deployment.md).
+Free tiers only: Neon Postgres and Vercel (two services: the static SPA and FastAPI as a Python function), with the app's own password gate (`ACCESS_PASSWORD`). Setup, environment variables and checks: [docs/deployment.md](docs/deployment.md).
 
 ## Project layout
 ```
